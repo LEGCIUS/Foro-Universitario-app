@@ -35,3 +35,10 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Archivos de configuración de editores
+.vscode/
+.idea/
+
+# Logs generales
+*.log
