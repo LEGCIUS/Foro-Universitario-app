@@ -20,14 +20,3 @@ const styles = StyleSheet.create({
 });
 
 
-const lucgo = StyleSheet.create({//////aaaaaaaaaaaaaa
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
-
-
-///////////putooooooooooooo
