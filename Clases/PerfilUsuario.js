@@ -42,7 +42,7 @@ export default function PerfilUsuario() {
   // Selecciona imagen y súbela a Supabase Storage
   const pickImageAndUpload = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: [ImagePicker.MediaType.IMAGE], // <-- Cambiado aquí
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -62,7 +62,7 @@ export default function PerfilUsuario() {
         .upload(filePath, blob, { contentType: blob.type, upsert: true });
 
       if (uploadError) {
-        Alert.alert('Error', uploadError.message || 'No se pudo subir la imagen');
+        Alert.alert('Error', 'No se pudo subir la imagen');
         return;
       }
 
@@ -105,11 +105,7 @@ export default function PerfilUsuario() {
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        onPress={editando ? pickImageAndUpload : undefined}
-        disabled={!editando}
-        style={!editando ? { opacity: 0.5 } : null}
-      >
+      <TouchableOpacity onPress={editando ? pickImageAndUpload : undefined} disabled={!editando}>
         {nuevaFoto ? (
           <Image source={{ uri: nuevaFoto }} style={styles.avatar} />
         ) : (
