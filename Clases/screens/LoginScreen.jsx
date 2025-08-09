@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, TextInput, Button, ActivityIndicator, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from "../../Supabase/supabaseClient";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen({ onLogin }) {
   const [form, setForm] = useState({ carnet: "", contrasena: "" });
@@ -31,7 +32,8 @@ export default function LoginScreen({ onLogin }) {
         throw new Error('Contraseña incorrecta');
       }
 
-      onLogin();
+     await AsyncStorage.setItem('carnet', form.carnet);
+     onLogin();
     } catch (err) {
       setError(err.message || "Ocurrió un error al iniciar sesión.");
     } finally {

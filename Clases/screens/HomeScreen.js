@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import PerfilUsuario from '../PerfilUsuario';
 import { supabase } from '../../Supabase/supabaseClient';
 import { Buffer } from 'buffer';
 
 global.Buffer = global.Buffer || Buffer;
 
-export default function HomeScreen({ onLogout }) {
+export default function HomeScreen({ onLogout, navigation }) {
   const [posts, setPosts] = useState([
     { id: '1', text: '¡Bienvenido al foro universitario!' },
     { id: '2', text: 'Recuerda revisar las reglas antes de publicar.' },
@@ -113,6 +114,7 @@ export default function HomeScreen({ onLogout }) {
     <View style={{ flex: 1 }}>
       <View style={styles.header}>
         <Text style={styles.title}>Bienvenido a la pantalla principal</Text>
+        <Button title="Perfil" onPress={() => navigation.navigate('PerfilUsuario')} />
         <Button title="Cerrar sesión" onPress={onLogout} />
       </View>
 

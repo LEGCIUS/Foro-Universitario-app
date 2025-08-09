@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
+import PerfilUsuario from '../Clases/PerfilUsuario';
 
 const Stack = createNativeStackNavigator();
 
@@ -26,6 +27,7 @@ export default function App() {
     // Guarda la sesión al iniciar
     await AsyncStorage.setItem('userToken', 'true');
     setIsAuthenticated(true);
+    
   };
 
   const handleLogout = async () => {
@@ -38,7 +40,7 @@ export default function App() {
     return null; // Aquí podrías mostrar un SplashScreen
   }
 
-  return (
+ return (
     <NavigationContainer>
       <Stack.Navigator>
         {!isAuthenticated ? (
@@ -46,11 +48,15 @@ export default function App() {
             {props => <LoginScreen {...props} onLogin={handleLogin} />}
           </Stack.Screen>
         ) : (
-          <Stack.Screen name="Home">
-            {props => <HomeScreen {...props} onLogout={handleLogout} />}
-          </Stack.Screen>
+          <>
+            <Stack.Screen name="Home">
+              {props => <HomeScreen {...props} onLogout={handleLogout} />}
+            </Stack.Screen>
+            <Stack.Screen name="PerfilUsuario" component={PerfilUsuario} options={{ title: 'Perfil' }} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
   );
+
 }
