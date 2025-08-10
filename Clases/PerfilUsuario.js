@@ -6,38 +6,42 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 import { supabase } from '../Supabase/supabaseClient';
+import { useFocusEffect } from '@react-navigation/native';
 
-export default function PerfilUsuario() {
+export default function PerfilUsuario({ navigation }) {
   const [usuario, setUsuario] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editando, setEditando] = useState(false);
   const [nuevaBio, setNuevaBio] = useState('');
   const [nuevaFoto, setNuevaFoto] = useState('');
 
-  useEffect(() => {
-    const fetchUsuario = async () => {
-      setLoading(true);
-      // Recupera el carnet guardado en AsyncStorage
-      const carnet = await AsyncStorage.getItem('carnet');
-      if (!carnet) {
-        setLoading(false);
-        return;
-      }
-      // Consulta los datos del usuario en Supabase
-      const { data, error } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('carnet', carnet)
-        .single();
-      if (!error && data) {
-        setUsuario(data);
-        setNuevaBio(data.biografia || '');
-        setNuevaFoto(data.foto_perfil || '');
-      }
+  const fetchUsuario = async () => {
+    setLoading(true);
+    // Recupera el carnet guardado en AsyncStorage
+    const carnet = await AsyncStorage.getItem('carnet');
+    if (!carnet) {
       setLoading(false);
-    };
-    fetchUsuario();
-  }, [editando === false]);
+      return;
+    }
+    // Consulta los datos del usuario en Supabase
+    const { data, error } = await supabase
+      .from('usuarios')
+      .select('*')
+      .eq('carnet', carnet)
+      .single();
+    if (!error && data) {
+      setUsuario(data);
+      setNuevaBio(data.biografia || '');
+      setNuevaFoto(data.foto_perfil || '');
+    }
+    setLoading(false);
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchUsuario();
+    }, [])
+  );
 
   const handleEditar = () => setEditando(true);
 
@@ -88,7 +92,7 @@ export default function PerfilUsuario() {
         const uri = result.assets[0].uri;
         const fileName = uri.split('/').pop();
         const fileType = fileName.split('.').pop();
-        const filePath = `${usuario.carnet}/perfil.${fileType}`;
+        const filePath = `${usuario.carnet}/perfil.${fileType}`; // Siempre el mismo nombre
 
         const base64 = await FileSystem.readAsStringAsync(uri, {
           encoding: FileSystem.EncodingType.Base64,
@@ -107,12 +111,14 @@ export default function PerfilUsuario() {
           return;
         }
 
+        // Obtiene la URL pública y le agrega un parámetro único para evitar caché
         const { data: publicData } = supabase
           .storage
           .from('fotos-perfil')
-          .getPublicUrl(data.path);
+          .getPublicUrl(filePath);
 
-        setNuevaFoto(publicData.publicUrl);
+        const urlConTimestamp = publicData.publicUrl + `?t=${Date.now()}`;
+        setNuevaFoto(urlConTimestamp);
       }
     }
   };
@@ -121,7 +127,7 @@ export default function PerfilUsuario() {
     setLoading(true);
     const { error } = await supabase
       .from('usuarios')
-      .update({ biografia: nuevaBio, foto_perfil: nuevaFoto })
+      .update({ biografia: nuevaBio, foto_perfil: nuevaFoto }) // usa nuevaFoto aquí
       .eq('carnet', usuario.carnet);
     setEditando(false);
     setLoading(false);
