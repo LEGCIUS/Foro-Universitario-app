@@ -119,6 +119,7 @@ export default function PerfilUsuario() {
       <Text style={styles.carnet}>Carnet: {usuario.carnet}</Text>
       <Text style={styles.correo}>Correo: {usuario.correo}</Text>
       <Text style={styles.fecha}>Fecha de nacimiento: {usuario.fecha_nacimiento}</Text>
+      <Text style={styles.carrera}>Carrera: {usuario.carrera}</Text>
       {editando ? (
         <TextInput
           style={[styles.bio, { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 8 }]}
