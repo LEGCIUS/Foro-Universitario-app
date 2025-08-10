@@ -1,8 +1,10 @@
 //Antes de hacer el commit, asegurarme de avisar a los demas por si estan trabajando en el mismo archivo
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { Buffer } from 'buffer';
 import { supabase } from '../Supabase/supabaseClient';
 
 export default function PerfilUsuario() {
@@ -41,34 +43,77 @@ export default function PerfilUsuario() {
 
   // Selecciona imagen y súbela a Supabase Storage
   const pickImageAndUpload = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
+    let result;
+    if (Platform.OS === 'web') {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        const file = asset.file || asset;
+        const fileName = file.name || 'perfil.jpg';
+        const fileType = file.type || 'image/jpeg';
+        const filePath = `${usuario.carnet}/${fileName}`;
 
-    if (!result.canceled) {
-      const file = result.assets[0];
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
-      const fileExt = file.uri.split('.').pop();
-      const fileName = `${usuario.carnet}_${Date.now()}.${fileExt}`;
-      const filePath = `perfil/${fileName}`;
+        const { data, error } = await supabase.storage
+          .from('fotos-perfil')
+          .upload(filePath, file, {
+            contentType: fileType,
+            upsert: true,
+          });
 
-      // Sube la imagen a Supabase Storage
-      let { error: uploadError } = await supabase.storage
-        .from('fotos-perfil')
-        .upload(filePath, blob, { contentType: blob.type, upsert: true });
+        if (error) {
+          Alert.alert('Error', error.message || 'No se pudo subir la imagen');
+          return;
+        }
 
-      if (uploadError) {
-        Alert.alert('Error', 'No se pudo subir la imagen');
-        return;
+        const { data: publicData } = supabase
+          .storage
+          .from('fotos-perfil')
+          .getPublicUrl(data.path);
+
+        setNuevaFoto(publicData.publicUrl);
       }
+    } else {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      if (!result.canceled) {
+        const uri = result.assets[0].uri;
+        const fileName = uri.split('/').pop();
+        const fileType = fileName.split('.').pop();
+        const filePath = `${usuario.carnet}/perfil.${fileType}`;
 
-      // Obtiene la URL pública
-      const { data } = supabase.storage.from('fotos-perfil').getPublicUrl(filePath);
-      setNuevaFoto(data.publicUrl);
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const fileBuffer = Buffer.from(base64, 'base64');
+
+        const { data, error } = await supabase.storage
+          .from('fotos-perfil')
+          .upload(filePath, fileBuffer, {
+            contentType: `image/${fileType}`,
+            upsert: true,
+          });
+
+        if (error) {
+          Alert.alert('Error', error.message || 'No se pudo subir la imagen');
+          return;
+        }
+
+        const { data: publicData } = supabase
+          .storage
+          .from('fotos-perfil')
+          .getPublicUrl(data.path);
+
+        setNuevaFoto(publicData.publicUrl);
+      }
     }
   };
 
