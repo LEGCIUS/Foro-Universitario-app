@@ -116,6 +116,7 @@ export default function HomeScreen({ onLogout, navigation }) {
         <Text style={styles.title}>Bienvenido a la pantalla principal</Text>
         <Button title="Perfil" onPress={() => navigation.navigate('PerfilUsuario')} />
         <Button title="Cerrar sesión" onPress={onLogout} />
+        <Button title="Ir a Ventas" onPress={() => navigation.navigate('VentasScreen')} />
       </View>
 
       {/* Formulario de publicación */}

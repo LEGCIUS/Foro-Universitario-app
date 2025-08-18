@@ -6,6 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import PerfilUsuario from '../Clases/PerfilUsuario';
+import ProductosList from './ventas/ProductosList';
+import ProductoForm from './ventas/ProductoForm';
 
 const Stack = createNativeStackNavigator();
 
@@ -53,7 +55,11 @@ export default function App() {
               {props => <HomeScreen {...props} onLogout={handleLogout} />}
             </Stack.Screen>
             <Stack.Screen name="PerfilUsuario" component={PerfilUsuario} options={{ title: 'Perfil' }} />
-          </>
+          <Stack.Screen name="VentasScreen" options={{ title: 'Ventas' }}>
+            {props => <ProductosList {...props} navigation={props.navigation} />}
+          </Stack.Screen>
+              <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} options={{ title: 'Publicar Producto' }} />
+        </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
