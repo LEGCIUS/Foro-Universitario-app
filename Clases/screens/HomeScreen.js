@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-import { Audio } from 'expo-av';
-import { Video } from 'expo-av';
+import { Audio } from 'expo-audio';
+import { Video } from 'expo-av'; // Importa Video de expo-av si expo-video no funciona
 import { supabase } from '../../Supabase/supabaseClient';
 import { Buffer } from 'buffer';
+import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 
 global.Buffer = global.Buffer || Buffer;
 
@@ -200,6 +201,89 @@ export default function HomeScreen({ onLogout, navigation }) {
     setUploading(false);
   };
 
+  // Componente funcional para cada publicación del feed
+  const FeedItem = ({ item }) => {
+    const [liked, setLiked] = useState(false);
+    const [likeCount, setLikeCount] = useState(item.likes || 0);
+    const [commentText, setCommentText] = useState('');
+    const [comments, setComments] = useState(item.comments || []);
+
+    const handleLike = () => {
+      setLiked(!liked);
+      setLikeCount(liked ? likeCount - 1 : likeCount + 1);
+      // Actualiza en la base de datos si lo deseas
+    };
+
+    const handleAddComment = () => {
+      if (commentText.trim()) {
+        setComments([...comments, { user: 'Tú', text: commentText }]);
+        setCommentText('');
+        // Guarda el comentario en la base de datos si lo deseas
+      }
+    };
+
+    return (
+      <View style={styles.feedCard}>
+        <View style={styles.feedHeader}>
+          <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.feedAvatar} />
+          <Text style={styles.feedUser}>{item.userName || 'Usuario'}</Text>
+        </View>
+        {item.mediaUrl ? (
+          item.mediaType === 'video' ? (
+            <View style={styles.feedMediaContainer}>
+              {/* Cambia Video por expo-video si ya migraste */}
+              <Video
+                source={{ uri: item.mediaUrl }}
+                style={styles.feedMedia}
+                useNativeControls
+                resizeMode="cover"
+              />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: item.mediaUrl }}
+              style={styles.feedMedia}
+              resizeMode="cover"
+            />
+          )
+        ) : null}
+        {item.text ? <Text style={styles.feedText}>{item.text}</Text> : null}
+        <View style={styles.feedActions}>
+          <TouchableOpacity style={styles.feedActionBtn} onPress={handleLike}>
+            <FontAwesome name={liked ? "heart" : "heart-o"} size={28} color={liked ? "#e74c3c" : "#333"} />
+          </TouchableOpacity>
+          <Text style={styles.feedStats}>{likeCount} Me gusta</Text>
+          <TouchableOpacity style={styles.feedActionBtn}>
+            <FontAwesome name="comment-o" size={24} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.feedActionBtn}>
+            <MaterialIcons name="share" size={24} color="#333" />
+          </TouchableOpacity>
+        </View>
+        {/* Comentarios */}
+        <View style={styles.commentsSection}>
+          {comments.map((c, idx) => (
+            <View key={idx} style={styles.commentItem}>
+              <Text style={styles.commentUser}>{c.user}:</Text>
+              <Text style={styles.commentText}>{c.text}</Text>
+            </View>
+          ))}
+          <View style={styles.commentInputRow}>
+            <TextInput
+              style={styles.commentInput}
+              value={commentText}
+              onChangeText={setCommentText}
+              placeholder="Añade un comentario..."
+            />
+            <TouchableOpacity onPress={handleAddComment} style={styles.commentSendBtn}>
+              <MaterialIcons name="send" size={22} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.header}>
@@ -223,15 +307,16 @@ export default function HomeScreen({ onLogout, navigation }) {
           <Text style={styles.charCount}>{newPost.length}/280</Text>
           {previewMedia && (
             <View style={styles.previewContainer}>
-              {mediaType === 'video' ? (
+              {mediaType === 'video' && typeof Video !== 'undefined' ? (
                 <Video
                   source={{ uri: previewMedia.uri }}
                   style={styles.previewMedia}
                   useNativeControls
                   resizeMode="contain"
                 />
-              ) : mediaType === 'audio' ? (
-                <audio controls src={previewMedia.uri} style={{ width: 180 }} />
+              ) : mediaType === 'audio' && typeof Audio !== 'undefined' ? (
+                // Aquí deberías usar la API de expo-audio para reproducir audio
+                <Text>Reproductor de audio no disponible en esta plataforma.</Text>
               ) : (
                 <Image
                   source={{ uri: previewMedia.uri }}
@@ -287,30 +372,8 @@ export default function HomeScreen({ onLogout, navigation }) {
       {/* Lista de publicaciones */}
       <FlatList
         data={posts}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.postItem}>
-            {item.text ? <Text style={{ marginBottom: 8 }}>{item.text}</Text> : null}
-            {item.mediaUrl ? (
-              item.mediaType === 'video' ? (
-                <Video
-                  source={{ uri: item.mediaUrl }}
-                  style={{ width: '100%', height: 200, borderRadius: 8 }}
-                  useNativeControls
-                  resizeMode="contain"
-                />
-              ) : item.mediaType === 'audio' ? (
-                <audio controls src={item.mediaUrl} style={{ width: '100%' }} />
-              ) : (
-                <Image
-                  source={{ uri: item.mediaUrl }}
-                  style={{ width: '100%', height: 200, borderRadius: 8 }}
-                  resizeMode="cover"
-                />
-              )
-            ) : null}
-          </View>
-        )}
+        renderItem={({ item }) => <FeedItem item={item} />}
+        keyExtractor={item => item.id.toString()}
         contentContainerStyle={styles.feed}
       />
     </View>
@@ -394,5 +457,116 @@ const styles = StyleSheet.create({
   },
   feed: {
     paddingBottom: 16,
+  },
+  // Mejora visual en la lista de publicaciones con video
+  postCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    marginBottom: 18,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  feedCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    marginBottom: 24,
+    paddingBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  feedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  feedAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+    backgroundColor: '#eee',
+  },
+  feedUser: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  feedMediaContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e7edf3',
+    borderRadius: 12,
+    marginHorizontal: 8,
+    marginBottom: 8,
+  },
+  feedMedia: {
+    width: '100%',
+    height: 320,
+    borderRadius: 12,
+    backgroundColor: '#e7edf3',
+  },
+  feedText: {
+    fontSize: 15,
+    color: '#333',
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  feedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+    marginTop: 6,
+  },
+  feedActionBtn: {
+    marginRight: 18,
+  },
+  feedStats: {
+    fontSize: 13,
+    color: '#888',
+    marginLeft: 12,
+    marginTop: 4,
+  },
+  // Estilos para likes y comentarios
+  commentsSection: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  commentUser: {
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginRight: 4,
+  },
+  commentText: {
+    color: '#333',
+    fontSize: 15,
+  },
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  commentInput: {
+    flex: 1,
+    backgroundColor: '#f2f6fa',
+    borderRadius: 8,
+    padding: 8,
+    fontSize: 15,
+    marginRight: 6,
+  },
+  commentSendBtn: {
+    padding: 6,
   },
 });

@@ -1,57 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert } from 'react-native';import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal } from 'react-native';import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 
 function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado }) {
-  const [currentIndex, setCurrentIndex] = React.useState(0);
-  let imagenes = [];
-  if (Array.isArray(item.foto_url)) {
-    imagenes = item.foto_url;
-  } else if (typeof item.foto_url === 'string' && item.foto_url) {
-    imagenes = [item.foto_url];
-  }
   return (
     <TouchableOpacity
       style={styles.card}
       activeOpacity={0.95}
-      onPress={() => onVerDetalle && onVerDetalle(item)}
+      onPress={() => onVerDetalle(item)}
     >
       <View style={styles.imageContainer}>
-        {imagenes.length > 0 ? (
-          <>
-            <FlatList
-              data={imagenes}
-              horizontal
-              pagingEnabled
-              snapToInterval={140}
-              decelerationRate="fast"
-              keyExtractor={(uri, idx) => uri + idx}
-              showsHorizontalScrollIndicator={false}
-              style={{ width: 140, height: 110 }}
-              onScroll={e => {
-                const index = Math.round(e.nativeEvent.contentOffset.x / 140);
-                setCurrentIndex(index);
-              }}
-              scrollEventThrottle={16}
-              renderItem={({ item: img }) => (
-                <Image source={{ uri: img }} style={{ width: 130, height: 110, borderRadius: 16, marginRight: 10 }} />
-              )}
-            />
-            <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 4 }}>
-              {imagenes.map((_, idx) => (
-                <View
-                  key={idx}
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: currentIndex === idx ? '#007AFF' : '#e7edf3',
-                    marginHorizontal: 2,
-                  }}
-                />
-              ))}
-            </View>
-          </>
+        {Array.isArray(item.foto_url) && item.foto_url.length > 0 ? (
+          <Image source={{ uri: item.foto_url[0] }} style={styles.image} />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Text style={{ color: '#bbb', fontSize: 32 }}>🖼️</Text>
@@ -125,6 +85,9 @@ export default function ProductosList(props) {
   const [loading, setLoading] = useState(true);
   const [userCarnet, setUserCarnet] = useState('');
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('todos');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [imagenIndex, setImagenIndex] = useState(0);
 
   useEffect(() => {
     AsyncStorage.getItem('carnet').then(carnet => {
@@ -154,6 +117,30 @@ export default function ProductosList(props) {
     setLoading(false);
   };
 
+  const handleVerDetalle = (item) => {
+    setProductoSeleccionado(item);
+    setImagenIndex(0);
+    setModalVisible(true);
+  };
+
+  const handleCerrarModal = () => {
+    setModalVisible(false);
+    setProductoSeleccionado(null);
+    setImagenIndex(0);
+  };
+
+  const handleImagenAnterior = () => {
+    if (productoSeleccionado && Array.isArray(productoSeleccionado.foto_url)) {
+      setImagenIndex((prev) => (prev > 0 ? prev - 1 : productoSeleccionado.foto_url.length - 1));
+    }
+  };
+
+  const handleImagenSiguiente = () => {
+    if (productoSeleccionado && Array.isArray(productoSeleccionado.foto_url)) {
+      setImagenIndex((prev) => (prev < productoSeleccionado.foto_url.length - 1 ? prev + 1 : 0));
+    }
+  };
+
   const categorias = ['todos', 'comida', 'servicios', 'articulos', 'decoracion'];
 
   return (
@@ -181,7 +168,7 @@ export default function ProductosList(props) {
           renderItem={({ item }) => (
             <ProductoCard
               item={item}
-              onVerDetalle={onVerDetalle}
+              onVerDetalle={handleVerDetalle}
               navigation={navigation}
               userCarnet={userCarnet}
               handleProductoPublicado={handleProductoPublicado}
@@ -195,6 +182,50 @@ export default function ProductosList(props) {
           )}
         />
       )}
+      {/* Modal de detalle */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={handleCerrarModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {productoSeleccionado && (
+              <>
+                <View style={{ alignItems: 'center', marginBottom: 12 }}>
+                  {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <TouchableOpacity onPress={handleImagenAnterior} style={{ padding: 8 }}>
+                        <Text style={{ fontSize: 28 }}>◀️</Text>
+                      </TouchableOpacity>
+                      <Image
+                        source={{ uri: productoSeleccionado.foto_url[imagenIndex] }}
+                        style={{ width: 220, height: 180, borderRadius: 16, marginHorizontal: 8 }}
+                      />
+                      <TouchableOpacity onPress={handleImagenSiguiente} style={{ padding: 8 }}>
+                        <Text style={{ fontSize: 28 }}>▶️</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.imagePlaceholder}>
+                      <Text style={{ color: '#bbb', fontSize: 32 }}>🖼️</Text>
+                    </View>
+                  )}
+                  <Text style={{ marginTop: 6, color: '#888' }}>{imagenIndex + 1} / {productoSeleccionado.foto_url?.length || 1}</Text>
+                </View>
+                <Text style={styles.nombre}>{productoSeleccionado.nombre}</Text>
+                <Text style={styles.precio}>₡{productoSeleccionado.precio}</Text>
+                <Text style={styles.descripcion}>{productoSeleccionado.descripcion}</Text>
+                <Text style={styles.vendedor}>Vendedor: <Text style={{ color: '#0e141b', fontWeight: 'bold' }}>{productoSeleccionado.nombre_vendedor}</Text></Text>
+                <TouchableOpacity style={styles.closeButton} onPress={handleCerrarModal}>
+                  <Text style={styles.closeButtonText}>Cerrar</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
       <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('PublicarProducto', { onProductoPublicado: handleProductoPublicado })} activeOpacity={0.85}>
         <Text style={styles.fabText}>＋</Text>
       </TouchableOpacity>

@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert, Platform, FlatList } from 'react-native';
+import { Platform as RNPlatform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 import { supabase } from '../../Supabase/supabaseClient';
+// ...existing code...
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function ProductoForm({ onProductoPublicado, onCancelar, producto, modo }) {
+  // ...existing code...
   const [nombre, setNombre] = useState(producto?.nombre || '');
   const [descripcion, setDescripcion] = useState(producto?.descripcion || '');
   const [precio, setPrecio] = useState(producto?.precio ? String(producto.precio) : '');
@@ -26,8 +29,9 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
   const [showHoraPicker, setShowHoraPicker] = useState(false);
 
   const pickImagesAndUpload = async () => {
+    let mediaTypes = ImagePicker.MediaType ? ImagePicker.MediaType.IMAGE : ImagePicker.MediaTypeOptions.Images;
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes,
       allowsMultipleSelection: true,
       quality: 0.8,
     });
@@ -54,36 +58,36 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
     telefonoFormateado = '+506' + telefonoFormateado.slice(-8);
     setSubiendo(true);
     try {
-  let imagenesUrls = foto_url;
-      if (previewUris.length > 0) {
-        imagenesUrls = [];
-        const carnet = await AsyncStorage.getItem('carnet');
-        for (let i = 0; i < previewUris.length; i++) {
-          const uri = previewUris[i];
-          const fileName = uri.split('/').pop();
-          const fileType = fileName.split('.').pop();
-          const filePath = `${carnet}/productos/${Date.now()}_${i}_${fileName}`;
-          const base64 = await FileSystem.readAsStringAsync(uri, {
-            encoding: FileSystem.EncodingType.Base64,
+    let imagenesUrls = foto_url;
+    if (previewUris.length > 0) {
+      imagenesUrls = [];
+      const carnet = await AsyncStorage.getItem('carnet');
+      for (let i = 0; i < previewUris.length; i++) {
+        const uri = previewUris[i];
+        const fileName = uri.split('/').pop();
+        const fileType = fileName.split('.').pop();
+        const filePath = `${carnet}/productos/${Date.now()}_${i}_${fileName}`;
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const fileBuffer = Buffer.from(base64, 'base64');
+        const { data, error: uploadError } = await supabase.storage
+          .from('fotos-productos')
+          .upload(filePath, fileBuffer, {
+            contentType: `image/${fileType}`,
+            upsert: true,
           });
-          const fileBuffer = Buffer.from(base64, 'base64');
-          const { data, error: uploadError } = await supabase.storage
-            .from('fotos-productos')
-            .upload(filePath, fileBuffer, {
-              contentType: `image/${fileType}`,
-              upsert: true,
-            });
-          if (uploadError) {
-            Alert.alert('Error', uploadError.message || 'No se pudo subir la imagen');
-            return;
-          }
-          const { data: publicData } = supabase
-            .storage
-            .from('fotos-productos')
-            .getPublicUrl(filePath);
-          imagenesUrls.push(publicData.publicUrl + `?t=${Date.now()}`);
+        if (uploadError) {
+          Alert.alert('Error', uploadError.message || 'No se pudo subir la imagen');
+          return;
         }
+        const { data: publicData } = supabase
+          .storage
+          .from('fotos-productos')
+          .getPublicUrl(filePath);
+        imagenesUrls.push(publicData.publicUrl + `?t=${Date.now()}`);
       }
+    }
       let error;
       let horaGuardar = null;
       if (horaInicioVenta) {
@@ -219,15 +223,17 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
           multiline
         />
         <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 16 }}>Inicio de venta:</Text>
-        <TouchableOpacity
-          style={[styles.input, { justifyContent: 'center', alignItems: 'flex-start' }]}
-          onPress={() => setShowHoraPicker(true)}
-        >
-          <Text style={{ color: horaInicioVenta ? '#333' : '#aaa', fontSize: 16 }}>
-            {horaInicioVenta ? horaInicioVenta.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Selecciona la hora (opcional)'}
-          </Text>
-        </TouchableOpacity>
-        {showHoraPicker && (
+        {RNPlatform.OS !== 'web' && (
+          <TouchableOpacity
+            style={[styles.input, { justifyContent: 'center', alignItems: 'flex-start' }]}
+            onPress={() => setShowHoraPicker(true)}
+          >
+            <Text style={{ color: horaInicioVenta ? '#333' : '#aaa', fontSize: 16 }}>
+              {horaInicioVenta ? horaInicioVenta.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Selecciona la hora (opcional)'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {showHoraPicker && RNPlatform.OS !== 'web' && (
           <DateTimePicker
             value={horaInicioVenta || new Date()}
             mode="time"

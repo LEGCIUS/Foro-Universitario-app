@@ -1,12 +1,14 @@
 //Antes de hacer el commit, asegurarme de avisar a los demas por si estan trabajando en el mismo archivo
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 import { supabase } from '../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
 export default function PerfilUsuario({ navigation }) {
   const [usuario, setUsuario] = useState(null);
@@ -140,79 +142,120 @@ export default function PerfilUsuario({ navigation }) {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
+      <LinearGradient colors={["#e0eafc", "#cfdef3"]} style={styles.gradient}>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#007AFF" />
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!usuario) {
     return (
-      <View style={styles.center}>
-        <Text>No se pudo cargar el perfil.</Text>
-      </View>
+      <LinearGradient colors={["#e0eafc", "#cfdef3"]} style={styles.gradient}>
+        <View style={styles.center}>
+          <Text>No se pudo cargar el perfil.</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={editando ? pickImageAndUpload : undefined} disabled={!editando}>
-        {nuevaFoto ? (
-          <Image source={{ uri: nuevaFoto }} style={styles.avatar} />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarText}>{usuario.nombre[0]}</Text>
+    <LinearGradient colors={["#e0eafc", "#cfdef3"]} style={styles.gradient}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+      >
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }} keyboardShouldPersistTaps="handled">
+          <View style={styles.cardPerfil}>
+            <TouchableOpacity onPress={editando ? pickImageAndUpload : undefined} disabled={!editando}>
+              <View style={styles.avatarShadow}>
+                {nuevaFoto ? (
+                  <Image source={{ uri: nuevaFoto }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarText}>{usuario.nombre[0]}</Text>
+                  </View>
+                )}
+              </View>
+              {editando && <Text style={{ color: '#007AFF', textAlign: 'center' }}>Cambiar foto</Text>}
+            </TouchableOpacity>
+            <Text style={styles.nombre}>{usuario.nombre} {usuario.apellido}</Text>
+            <View style={styles.infoRow}><MaterialIcons name="badge" size={20} color="#007AFF" /><Text style={styles.infoText}>Carnet: {usuario.carnet}</Text></View>
+            <View style={styles.infoRow}><MaterialIcons name="email" size={20} color="#007AFF" /><Text style={styles.infoText}>Correo: {usuario.correo}</Text></View>
+            <View style={styles.infoRow}><FontAwesome5 name="birthday-cake" size={18} color="#007AFF" /><Text style={styles.infoText}>Fecha de nacimiento: {usuario.fecha_nacimiento}</Text></View>
+            <View style={styles.infoRow}><MaterialIcons name="school" size={20} color="#007AFF" /><Text style={styles.infoText}>Carrera: {usuario.carrera}</Text></View>
+            {editando ? (
+              <View style={{ width: '100%' }}>
+                <Text style={{ color: '#007AFF', marginBottom: 4, textAlign: 'center', fontWeight: 'bold' }}>Editando biografía...</Text>
+                <TextInput
+                  style={[styles.bio, { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 8, backgroundColor: '#f7faff' }]}
+                  value={nuevaBio}
+                  onChangeText={setNuevaBio}
+                  multiline
+                  placeholder="Escribe tu biografía aquí..."
+                  textAlignVertical="top"
+                />
+              </View>
+            ) : (
+              usuario.biografia && <Text style={styles.bio}>{usuario.biografia}</Text>
+            )}
+            <View style={{ flexDirection: 'row', marginTop: 16 }}>
+              {editando ? (
+                <TouchableOpacity style={styles.button} onPress={handleGuardar}>
+                  <Text style={styles.buttonText}>Guardar</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.button} onPress={handleEditar}>
+                  <Text style={styles.buttonText}>Editar</Text>
+                </TouchableOpacity>
+              )}
+              {editando && (
+                <TouchableOpacity style={[styles.button, { backgroundColor: '#ccc', marginLeft: 8 }]} onPress={() => setEditando(false)}>
+                  <Text style={[styles.buttonText, { color: '#333' }]}>Cancelar</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        )}
-        {editando && <Text style={{ color: '#007AFF', textAlign: 'center' }}>Cambiar foto</Text>}
-      </TouchableOpacity>
-      <Text style={styles.nombre}>{usuario.nombre} {usuario.apellido}</Text>
-      <Text style={styles.carnet}>Carnet: {usuario.carnet}</Text>
-      <Text style={styles.correo}>Correo: {usuario.correo}</Text>
-      <Text style={styles.fecha}>Fecha de nacimiento: {usuario.fecha_nacimiento}</Text>
-      <Text style={styles.carrera}>Carrera: {usuario.carrera}</Text>
-      {editando ? (
-        <TextInput
-          style={[styles.bio, { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 8 }]}
-          value={nuevaBio}
-          onChangeText={setNuevaBio}
-          multiline
-        />
-      ) : (
-        usuario.biografia && <Text style={styles.bio}>{usuario.biografia}</Text>
-      )}
-      <View style={{ flexDirection: 'row', marginTop: 16 }}>
-        {editando ? (
-          <TouchableOpacity style={styles.button} onPress={handleGuardar}>
-            <Text style={styles.buttonText}>Guardar</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.button} onPress={handleEditar}>
-            <Text style={styles.buttonText}>Editar</Text>
-          </TouchableOpacity>
-        )}
-        {editando && (
-          <TouchableOpacity style={[styles.button, { backgroundColor: '#ccc', marginLeft: 8 }]} onPress={() => setEditando(false)}>
-            <Text style={[styles.buttonText, { color: '#333' }]}>Cancelar</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  gradient: { flex: 1 },
+  cardPerfil: {
+  backgroundColor: '#fff',
+  borderRadius: 24,
+  padding: 24,
+  margin: 24,
+  alignItems: 'center',
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.15,
+  shadowRadius: 12,
+  elevation: 8,
+  },
+  avatarShadow: {
+  shadowColor: '#007AFF',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.25,
+  shadowRadius: 8,
+  elevation: 6,
+  borderRadius: 60,
+  marginBottom: 8,
+  },
+  avatar: { width: 120, height: 120, borderRadius: 60, borderWidth: 3, borderColor: '#007AFF', backgroundColor: '#fff' },
+  avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 48, color: '#888' },
+  nombre: { fontSize: 28, fontWeight: 'bold', marginBottom: 8, color: '#0e141b' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  infoText: { fontSize: 17, color: '#4e7397', marginLeft: 8 },
+  bio: { fontSize: 16, color: '#333', marginTop: 12, textAlign: 'center', minWidth: 220, minHeight: 40 },
+  button: { backgroundColor: '#007AFF', padding: 12, borderRadius: 10, marginHorizontal: 4, minWidth: 100 },
+  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16, textAlign: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  avatar: { width: 100, height: 100, borderRadius: 50, marginBottom: 8 },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  avatarText: { fontSize: 40, color: '#888' },
-  nombre: { fontSize: 24, fontWeight: 'bold', marginBottom: 4 },
-  carnet: { fontSize: 16, color: '#555', marginBottom: 4 },
-  correo: { fontSize: 16, color: '#555', marginBottom: 4 },
-  fecha: { fontSize: 16, color: '#555', marginBottom: 8 },
-  bio: { fontSize: 16, color: '#333', marginTop: 12, textAlign: 'center', minWidth: 200, minHeight: 40 },
-  button: { backgroundColor: '#007AFF', padding: 10, borderRadius: 8, marginHorizontal: 4 },
-  buttonText: { color: '#fff', fontWeight: 'bold' },
 });
 
