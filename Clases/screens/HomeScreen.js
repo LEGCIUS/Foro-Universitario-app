@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform, Modal, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-audio';
-import { Video } from 'expo-av'; // Importa Video de expo-av si expo-video no funciona
+import { Video } from 'expo-av';
 import { supabase } from '../../Supabase/supabaseClient';
 import { Buffer } from 'buffer';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 global.Buffer = global.Buffer || Buffer;
 
@@ -19,43 +20,54 @@ export default function HomeScreen({ onLogout, navigation }) {
   const [uploading, setUploading] = useState(false);
   const [previewMedia, setPreviewMedia] = useState(null);
   const [mediaType, setMediaType] = useState(null);
+  const [showPublishModal, setShowPublishModal] = useState(false);
+
+  const fetchPostsFromDB = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('publicaciones')
+      .select('*')
+      .order('fecha_publicacion', { ascending: false });
+
+    if (error) {
+      console.error('Error al obtener publicaciones:', error);
+      return;
+    }
+
+    // Obtener datos de usuario para cada publicación desde la tabla usuarios
+    const postsWithUser = await Promise.all(
+      data.map(async pub => {
+        let userName = 'Usuario';
+        let userAvatar = 'https://i.pravatar.cc/100';
+        if (pub.carnet_usuario) {
+          const { data: userData, error: userError } = await supabase
+            .from('usuarios')
+            .select('nombre, foto_perfil')
+            .eq('carnet', pub.carnet_usuario)
+            .single();
+          if (!userError && userData) {
+            userName = userData.nombre || userName;
+            userAvatar = userData.foto_perfil || userAvatar;
+          }
+        }
+        return {
+          id: pub.id,
+          text: pub.titulo,
+          mediaUrl: pub.archivo_url,
+          mediaType: pub.contenido,
+          fecha: pub.fecha_publicacion,
+          userId: pub.carnet_usuario,
+          userName,
+          userAvatar,
+        };
+      })
+    );
+    setPosts(postsWithUser);
+  }, []);
 
   // Cargar archivos del bucket al montar el componente
   useEffect(() => {
-    const fetchPostsFromStorage = async () => {
-      const { data, error } = await supabase.storage
-        .from('multimedia')
-        .list('uploads', { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
-
-      if (error) {
-        console.error('Error al listar archivos:', error);
-        return;
-      }
-
-      // Construir publicaciones a partir de los archivos
-      const fetchedPosts = data.map(file => {
-        const publicUrl = supabase.storage
-          .from('multimedia')
-          .getPublicUrl(`uploads/${file.name}`).data.publicUrl;
-
-        // Detectar tipo por extensión
-        let mediaType = 'image';
-        if (file.name.match(/\.(mp4|mov|avi|webm)$/i)) mediaType = 'video';
-        if (file.name.match(/\.(mp3|wav|ogg)$/i)) mediaType = 'audio';
-
-        return {
-          id: file.id || file.name,
-          text: '', // Si quieres guardar texto, deberías usar una tabla aparte
-          mediaUrl: publicUrl,
-          mediaType,
-        };
-      });
-
-      setPosts(fetchedPosts);
-    };
-
-    fetchPostsFromStorage();
-  }, []);
+    fetchPostsFromDB();
+  }, [fetchPostsFromDB]);
 
   // Elegir imagen/video/audio y mostrar previsualización
   const pickMedia = async (type) => {
@@ -122,82 +134,64 @@ export default function HomeScreen({ onLogout, navigation }) {
   const handleAddPost = async () => {
     if (!newPost.trim() && !previewMedia) return;
     setUploading(true);
-
-    let mediaUrl = null;
-    let type = mediaType;
-
-    if (previewMedia) {
-      let file, fileName, fileType;
-      if (type === 'audio') {
-        file = previewMedia.file;
-        fileName = previewMedia.name || 'audio_upload.mp3';
-        fileType = file.type || 'audio/mpeg';
-        const { data, error } = await supabase.storage
-          .from('multimedia')
-          .upload(`uploads/${Date.now()}_${fileName}`, file, {
-            contentType: fileType,
-            upsert: true,
-          });
-        if (!error) {
-          const { data: publicData } = supabase
-            .storage
-            .from('multimedia')
-            .getPublicUrl(data.path);
-          mediaUrl = publicData.publicUrl;
-        }
-      } else if (Platform.OS === 'web') {
-        file = previewMedia.file || previewMedia;
-        fileName = file.name || 'upload';
-        fileType = file.type || (type === 'video' ? 'video/mp4' : 'image/jpeg');
-        const { data, error } = await supabase.storage
-          .from('multimedia')
-          .upload(`uploads/${Date.now()}_${fileName}`, file, {
-            contentType: fileType,
-            upsert: true,
-          });
-        if (!error) {
-          const { data: publicData } = supabase
-            .storage
-            .from('multimedia')
-            .getPublicUrl(data.path);
-          mediaUrl = publicData.publicUrl;
-        }
-      } else {
+    try {
+      // Obtener carnet del usuario actual
+      const carnet = await AsyncStorage.getItem('carnet');
+      if (!carnet) throw new ReferenceError("No se encontró el carnet del usuario");
+      let publicUrl = null;
+      // Si hay media, subir a Supabase Storage y obtener la URL pública
+      if (previewMedia?.uri) {
         const uri = previewMedia.uri;
-        fileName = uri.split('/').pop();
-        fileType = fileName.split('.').pop();
+        const fileName = uri.split('/').pop();
+        const fileType = fileName.split('.').pop();
+        const filePath = `${carnet}/publicaciones/${Date.now()}_${fileName}`;
         const base64 = await FileSystem.readAsStringAsync(uri, {
           encoding: FileSystem.EncodingType.Base64,
         });
         const fileBuffer = Buffer.from(base64, 'base64');
-        const { data, error } = await supabase.storage
+        const { data, error: uploadError } = await supabase.storage
           .from('multimedia')
-          .upload(`uploads/${Date.now()}_${fileName}`, fileBuffer, {
-            contentType: type === 'video' ? `video/${fileType}` : `image/${fileType}`,
+          .upload(filePath, fileBuffer, {
+            contentType: mediaType === 'video' ? `video/${fileType}` : `image/${fileType}`,
             upsert: true,
           });
-        if (!error) {
-          const { data: publicData } = supabase
-            .storage
-            .from('multimedia')
-            .getPublicUrl(data.path);
-          mediaUrl = publicData.publicUrl;
+        if (uploadError) {
+          Alert.alert('Error', uploadError.message || 'No se pudo subir el archivo');
+          setUploading(false);
+          return;
         }
+        const { data: publicData } = supabase
+          .storage
+          .from('multimedia')
+          .getPublicUrl(filePath);
+        publicUrl = publicData.publicUrl + `?t=${Date.now()}`;
       }
+      // Guardar publicación con la URL pública
+      const { error } = await supabase
+        .from('publicaciones')
+        .insert([
+          {
+            titulo: newPost,
+            archivo_url: publicUrl,
+            contenido: mediaType,
+            fecha_publicacion: new Date().toISOString(),
+            carnet_usuario: carnet,
+          },
+        ]);
+      if (error) {
+        Alert.alert('Error', 'No se pudo publicar.');
+        console.error('Error al publicar:', error);
+      } else {
+        setNewPost('');
+        setPreviewMedia(null);
+        setMediaType(null);
+        setShowPublishModal(false);
+        fetchPostsFromDB();
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Ocurrió un error inesperado.');
+      console.error('Error inesperado:', err);
     }
-
-    setPosts([
-      {
-        id: Date.now().toString(),
-        text: newPost,
-        mediaUrl,
-        mediaType: type,
-      },
-      ...posts,
-    ]);
-    setNewPost('');
-    setPreviewMedia(null);
-    setMediaType(null);
     setUploading(false);
   };
 
@@ -231,7 +225,6 @@ export default function HomeScreen({ onLogout, navigation }) {
         {item.mediaUrl ? (
           item.mediaType === 'video' ? (
             <View style={styles.feedMediaContainer}>
-              {/* Cambia Video por expo-video si ya migraste */}
               <Video
                 source={{ uri: item.mediaUrl }}
                 style={styles.feedMedia}
@@ -293,82 +286,6 @@ export default function HomeScreen({ onLogout, navigation }) {
         <Button title="Ir a Ventas" onPress={() => navigation.navigate('VentasScreen')} />
       </View>
 
-      {/* Formulario de publicación */}
-      <View style={styles.addPostContainer}>
-        <View style={{ flex: 1 }}>
-          <TextInput
-            style={styles.input}
-            placeholder="¿Qué quieres compartir hoy?"
-            value={newPost}
-            onChangeText={setNewPost}
-            maxLength={280}
-            multiline
-          />
-          <Text style={styles.charCount}>{newPost.length}/280</Text>
-          {previewMedia && (
-            <View style={styles.previewContainer}>
-              {mediaType === 'video' && typeof Video !== 'undefined' ? (
-                <Video
-                  source={{ uri: previewMedia.uri }}
-                  style={styles.previewMedia}
-                  useNativeControls
-                  resizeMode="contain"
-                />
-              ) : mediaType === 'audio' && typeof Audio !== 'undefined' ? (
-                // Aquí deberías usar la API de expo-audio para reproducir audio
-                <Text>Reproductor de audio no disponible en esta plataforma.</Text>
-              ) : (
-                <Image
-                  source={{ uri: previewMedia.uri }}
-                  style={styles.previewMedia}
-                  resizeMode="cover"
-                />
-              )}
-              <TouchableOpacity
-                style={styles.clearPreviewButton}
-                onPress={() => {
-                  setPreviewMedia(null);
-                  setMediaType(null);
-                }}
-              >
-                <Text style={{ color: '#fff' }}>Quitar</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-        <TouchableOpacity
-          onPress={handleAddPost}
-          style={[
-            styles.button,
-            { backgroundColor: (newPost.trim() || previewMedia) ? '#007bff' : '#aaa' }
-          ]}
-          disabled={uploading || (!newPost.trim() && !previewMedia)}
-        >
-          <Text style={styles.buttonText}>{uploading ? 'Publicando...' : 'Publicar'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => pickMedia('image')}
-          style={styles.mediaButton}
-          disabled={uploading}
-        >
-          <Text style={styles.buttonText}>🖼️</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => pickMedia('video')}
-          style={styles.mediaButton}
-          disabled={uploading}
-        >
-          <Text style={styles.buttonText}>🎬</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => pickMedia('audio')}
-          style={styles.mediaButton}
-          disabled={uploading}
-        >
-          <Text style={styles.buttonText}>🎤</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Lista de publicaciones */}
       <FlatList
         data={posts}
@@ -376,6 +293,82 @@ export default function HomeScreen({ onLogout, navigation }) {
         keyExtractor={item => item.id.toString()}
         contentContainerStyle={styles.feed}
       />
+
+      {/* Botón flotante para publicar */}
+      <TouchableOpacity style={styles.fab} onPress={() => setShowPublishModal(true)}>
+        <FontAwesome name="plus" size={28} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Modal de publicación */}
+      <Modal visible={showPublishModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Crear publicación</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Escribe una historia o descripción..."
+              value={newPost}
+              onChangeText={setNewPost}
+              maxLength={280}
+              multiline
+            />
+            <Text style={styles.charCount}>{newPost.length}/280</Text>
+            {previewMedia && (
+              <View style={styles.previewContainer}>
+                {mediaType === 'video' && typeof Video !== 'undefined' ? (
+                  <Video
+                    source={{ uri: previewMedia.uri }}
+                    style={styles.previewMedia}
+                    useNativeControls
+                    resizeMode="contain"
+                  />
+                ) : mediaType === 'audio' && typeof Audio !== 'undefined' ? (
+                  <Text>Reproductor de audio no disponible en esta plataforma.</Text>
+                ) : (
+                  <Image
+                    source={{ uri: previewMedia.uri }}
+                    style={styles.previewMedia}
+                    resizeMode="cover"
+                  />
+                )}
+                <TouchableOpacity
+                  style={styles.clearPreviewButton}
+                  onPress={() => {
+                    setPreviewMedia(null);
+                    setMediaType(null);
+                  }}
+                >
+                  <Text style={{ color: '#fff' }}>Quitar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <View style={styles.mediaRow}>
+              <TouchableOpacity onPress={() => pickMedia('image')} style={styles.mediaButton} disabled={uploading}>
+                <Text style={styles.buttonText}>🖼️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => pickMedia('video')} style={styles.mediaButton} disabled={uploading}>
+                <Text style={styles.buttonText}>🎬</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => pickMedia('audio')} style={styles.mediaButton} disabled={uploading}>
+                <Text style={styles.buttonText}>🎤</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity
+              onPress={async () => {
+                await handleAddPost();
+                setShowPublishModal(false);
+              }}
+              style={[styles.button, { backgroundColor: (newPost.trim() || previewMedia) ? '#007bff' : '#aaa', marginTop: 12 }]}
+              disabled={uploading || (!newPost.trim() && !previewMedia)}
+            >
+              <Text style={styles.buttonText}>{uploading ? 'Publicando...' : 'Publicar'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowPublishModal(false)} style={[styles.button, { backgroundColor: '#FF3B30', marginTop: 8 }]}> 
+              <Text style={styles.buttonText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -568,5 +561,52 @@ const styles = StyleSheet.create({
   },
   commentSendBtn: {
     padding: 6,
+  },
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 32,
+    backgroundColor: '#007AFF',
+    borderRadius: 32,
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#007AFF',
+    textAlign: 'center',
+  },
+  mediaRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
   },
 });

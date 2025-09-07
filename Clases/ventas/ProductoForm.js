@@ -6,12 +6,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Buffer } from 'buffer';
 import { supabase } from '../../Supabase/supabaseClient';
-// ...existing code...
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function ProductoForm({ onProductoPublicado, onCancelar, producto, modo }) {
-  // ...existing code...
   const [nombre, setNombre] = useState(producto?.nombre || '');
   const [descripcion, setDescripcion] = useState(producto?.descripcion || '');
   const [precio, setPrecio] = useState(producto?.precio ? String(producto.precio) : '');
@@ -50,7 +48,7 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
   };
 
   const handlePublicar = async () => {
-    if (!nombre || !descripcion || !precio || ((previewUris.length === 0 && foto_url.length === 0)) || !nombreVendedor || !telefono || !mensajePredeterminado) {
+    if (!nombreVendedor || !telefono || !mensajePredeterminado || !categoria || !precio || !descripcion || (previewUris.length === 0)) {
       Alert.alert('Completa todos los campos y sube al menos una foto');
       return;
     }
@@ -58,37 +56,6 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
     telefonoFormateado = '+506' + telefonoFormateado.slice(-8);
     setSubiendo(true);
     try {
-    let imagenesUrls = foto_url;
-    if (previewUris.length > 0) {
-      imagenesUrls = [];
-      const carnet = await AsyncStorage.getItem('carnet');
-      for (let i = 0; i < previewUris.length; i++) {
-        const uri = previewUris[i];
-        const fileName = uri.split('/').pop();
-        const fileType = fileName.split('.').pop();
-        const filePath = `${carnet}/productos/${Date.now()}_${i}_${fileName}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        const fileBuffer = Buffer.from(base64, 'base64');
-        const { data, error: uploadError } = await supabase.storage
-          .from('fotos-productos')
-          .upload(filePath, fileBuffer, {
-            contentType: `image/${fileType}`,
-            upsert: true,
-          });
-        if (uploadError) {
-          Alert.alert('Error', uploadError.message || 'No se pudo subir la imagen');
-          return;
-        }
-        const { data: publicData } = supabase
-          .storage
-          .from('fotos-productos')
-          .getPublicUrl(filePath);
-        imagenesUrls.push(publicData.publicUrl + `?t=${Date.now()}`);
-      }
-    }
-      let error;
       let horaGuardar = null;
       if (horaInicioVenta) {
         let hora = typeof horaInicioVenta === 'string' ? new Date(horaInicioVenta) : horaInicioVenta;
@@ -97,20 +64,52 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
         let horaStr = `${horas.toString().padStart(2, '0')}:${minutos.toString().padStart(2, '0')}`;
         horaGuardar = horaStr;
       }
+      // Subir imágenes y obtener URLs públicas
+      let fotoUrlArr = [];
+      if (previewUris.length > 0) {
+        const carnet = await AsyncStorage.getItem('carnet');
+        for (let i = 0; i < previewUris.length; i++) {
+          const uri = previewUris[i];
+          const fileName = uri.split('/').pop();
+          const fileType = fileName.split('.').pop();
+          const filePath = `${carnet}/productos/${Date.now()}_${i}_${fileName}`;
+          const base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const fileBuffer = Buffer.from(base64, 'base64');
+          const { data, error: uploadError } = await supabase.storage
+            .from('fotos-productos')
+            .upload(filePath, fileBuffer, {
+              contentType: `image/${fileType}`,
+              upsert: true,
+            });
+          if (uploadError) {
+            Alert.alert('Error', uploadError.message || 'No se pudo subir la imagen');
+            setSubiendo(false);
+            return;
+          }
+          const { data: publicData } = supabase
+            .storage
+            .from('fotos-productos')
+            .getPublicUrl(filePath);
+          fotoUrlArr.push(publicData.publicUrl + `?t=${Date.now()}`);
+        }
+      }
+      let error;
       if (modo === 'editar' && producto?.id) {
         // Actualizar producto existente
         const { error: updateError } = await supabase
           .from('productos')
           .update({
-            nombre,
-            descripcion,
-            precio: parseFloat(precio),
-            foto_url: imagenesUrls,
+            usuario_carnet: producto.usuario_carnet,
             nombre_vendedor: nombreVendedor,
             telefono: telefonoFormateado,
             mensaje_whatsapp: mensajePredeterminado,
             categoria,
-            hora_inicio_venta: horaGuardar,
+            precio: parseFloat(precio),
+            descripcion,
+            foto_url: fotoUrlArr,
+            ...(horaGuardar ? { hora_inicio_venta: horaGuardar } : {}),
           })
           .eq('id', producto.id);
         error = updateError;
@@ -121,39 +120,35 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
           .from('productos')
           .insert([{
             usuario_carnet: carnet,
-            nombre,
-            descripcion,
-            precio: parseFloat(precio),
-            foto_url: imagenesUrls,
-            fecha_publicacion: new Date().toISOString(),
             nombre_vendedor: nombreVendedor,
             telefono: telefonoFormateado,
             mensaje_whatsapp: mensajePredeterminado,
             categoria,
-            hora_inicio_venta: horaGuardar,
+            precio: parseFloat(precio),
+            descripcion,
+            foto_url: fotoUrlArr,
+            ...(horaGuardar ? { hora_inicio_venta: horaGuardar } : {}),
           }]);
         error = insertError;
       }
       if (error) {
         Alert.alert('Error', 'No se pudo guardar el producto');
+        console.error('Error al guardar producto:', error);
       } else {
         Alert.alert(modo === 'editar' ? '¡Actualizado!' : '¡Publicado!', modo === 'editar' ? 'Producto actualizado correctamente' : 'Tu producto ha sido publicado');
-        setNombre('');
-        setDescripcion('');
-        setPrecio('');
-  setFotoUrl([]);
-  setPreviewUris([]);
-  setShowPreview(false);
         setNombreVendedor('');
         setTelefono('');
         setMensajePredeterminado('');
         setCategoria('comida');
+        setPrecio('');
+        setDescripcion('');
+        setPreviewUris([]);
         setHoraInicioVenta(null);
         if (onProductoPublicado) onProductoPublicado();
         if (onCancelar) onCancelar();
       }
     } catch (err) {
-      Alert.alert('Error', 'Hubo un problema al subir la imagen o guardar el producto.');
+      Alert.alert('Error', 'Hubo un problema al guardar el producto.');
     } finally {
       setSubiendo(false);
     }
