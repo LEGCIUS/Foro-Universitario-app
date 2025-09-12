@@ -9,6 +9,18 @@ import { Buffer } from 'buffer';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+
+// Esta mierda ya la devolvi a 20 antes de que se joda todo
+// Si vuelve a joderse, gogo.
+// Ayuda: Me estou dando cuenta que el error viene de aqui
+// Asi que lo dejo en 2024
+// Si vuelve a joderse, gogo. Ayuda: Me estou dando cuenta que el error viene de aqui
+// Asi que lo dejo en 2024
+// Si vuelve a joderse, gogo. Ayuda: Me estou dando cuenta que el error viene de aqui     
+
+
+
+
 global.Buffer = global.Buffer || Buffer;
 
 export default function HomeScreen({ onLogout, navigation }) {
