@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform, Modal, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Audio } from 'expo-audio';
 import { Video } from 'expo-av';
 import { supabase } from '../../Supabase/supabaseClient';
 import { Buffer } from 'buffer';
+global.Buffer = global.Buffer || Buffer;
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -158,7 +159,7 @@ export default function HomeScreen({ onLogout, navigation }) {
         const fileType = fileName.split('.').pop();
         const filePath = `${carnet}/publicaciones/${Date.now()}_${fileName}`;
         const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
+          encoding: 'base64',
         });
         const fileBuffer = Buffer.from(base64, 'base64');
         const { data, error: uploadError } = await supabase.storage
@@ -292,10 +293,7 @@ export default function HomeScreen({ onLogout, navigation }) {
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.header}>
-        <Text style={styles.title}>Bienvenido a la pantalla principal</Text>
-        <Button title="Perfil" onPress={() => navigation.navigate('PerfilUsuario')} />
-        <Button title="Cerrar sesión" onPress={onLogout} />
-        <Button title="Ir a Ventas" onPress={() => navigation.navigate('VentasScreen')} />
+        
       </View>
 
       {/* Lista de publicaciones */}

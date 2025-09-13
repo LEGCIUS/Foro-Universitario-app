@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal } from 'react-native';import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 
-function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado }) {
+function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading }) {
   return (
     <TouchableOpacity
       style={styles.card}
@@ -51,20 +51,31 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
           <View style={styles.ownerActions}>
             <TouchableOpacity
               style={styles.editButton}
-              onPress={() => navigation.navigate('PublicarProducto', { producto: item, modo: 'editar', onProductoPublicado: handleProductoPublicado })}
+              onPress={() => {
+                if (setLoading) setLoading(true);
+                navigation.navigate('PublicarProducto', {
+                  producto: item,
+                  modo: 'editar',
+                  onProductoEditado: () => {
+                    if (setLoading) setLoading(false);
+                    if (handleProductoPublicado) handleProductoPublicado();
+                  }
+                });
+              }}
               activeOpacity={0.8}
             >
               <Text style={styles.editButtonText}>✏️ Editar</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.deleteButton}
-              onPress={async () => {
+              onPress={() => {
                 Alert.alert('Eliminar', '¿Seguro que deseas eliminar este producto?', [
                   { text: 'Cancelar', style: 'cancel' },
                   { text: 'Eliminar', style: 'destructive', onPress: async () => {
-                    setLoading(true);
+                    if (setLoading) setLoading(true);
                     await supabase.from('productos').delete().eq('id', item.id);
-                    handleProductoPublicado();
+                    if (handleProductoPublicado) handleProductoPublicado();
+                    if (setLoading) setLoading(false);
                   }}
                 ]);
               }}
@@ -172,9 +183,9 @@ export default function ProductosList(props) {
               navigation={navigation}
               userCarnet={userCarnet}
               handleProductoPublicado={handleProductoPublicado}
+              setLoading={setLoading}
             />
-          )
-          }
+          )}
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyText}>No hay productos publicados aún.</Text>

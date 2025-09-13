@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import PerfilUsuario from '../Clases/PerfilUsuario';
+import SettingScreen from './screens/SettingScreen';
 import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
 
 const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -42,26 +46,51 @@ export default function App() {
     return null; // Aquí podrías mostrar un SplashScreen
   }
 
- return (
+  return (
     <NavigationContainer>
-      <Stack.Navigator>
-        {!isAuthenticated ? (
+      {!isAuthenticated ? (
+        <Stack.Navigator>
           <Stack.Screen name="Login">
             {props => <LoginScreen {...props} onLogin={handleLogin} />}
           </Stack.Screen>
-        ) : (
-          <>
-            <Stack.Screen name="Home">
-              {props => <HomeScreen {...props} onLogout={handleLogout} />}
-            </Stack.Screen>
-            <Stack.Screen name="PerfilUsuario" component={PerfilUsuario} options={{ title: 'Perfil' }} />
-          <Stack.Screen name="VentasScreen" options={{ title: 'Ventas' }}>
-            {props => <ProductosList {...props} navigation={props.navigation} />}
+        </Stack.Navigator>
+      ) : (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="MainTabs" options={{ headerShown: false }}>
+            {() => (
+              <Tab.Navigator
+                screenOptions={({ route }) => ({
+                  tabBarIcon: ({ color, size }) => {
+                    let iconName;
+                    if (route.name === 'Home') iconName = 'home';
+                    else if (route.name === 'Ventas') iconName = 'shopping-cart';
+                    else if (route.name === 'Fotos') iconName = 'photo';
+                    else if (route.name === 'Perfil') iconName = 'person';
+                    else if (route.name === 'Config') iconName = 'settings';
+                    return <Icon name={iconName} size={size} color={color} />;
+                  },
+                  tabBarActiveTintColor: '#00C6FB',
+                  tabBarInactiveTintColor: '#888',
+                  headerShown: false,
+                })}
+              >
+                <Tab.Screen name="Home">
+                  {props => <HomeScreen {...props} onLogout={handleLogout} />}
+                </Tab.Screen>
+                <Tab.Screen name="Perfil" component={PerfilUsuario} />
+                <Tab.Screen name="Fotos" component={HomeScreen} />
+                <Tab.Screen name="Ventas">
+                  {props => <ProductosList {...props} navigation={props.navigation} />}
+                </Tab.Screen>
+                <Tab.Screen name="Config">
+                  {props => <SettingScreen {...props} onLogout={handleLogout} />}
+                </Tab.Screen>
+              </Tab.Navigator>
+            )}
           </Stack.Screen>
-              <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} options={{ title: 'Publicar Producto' }} />
-        </>
-        )}
-      </Stack.Navigator>
+          <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} />
+        </Stack.Navigator>
+      )}
     </NavigationContainer>
   );
 
