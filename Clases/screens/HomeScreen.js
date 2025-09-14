@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform, Modal, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -25,6 +25,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 global.Buffer = global.Buffer || Buffer;
 
 export default function HomeScreen({ onLogout, navigation }) {
+
+
   const [posts, setPosts] = useState([
     { id: '1', text: '¡Bienvenido al foro universitario!' },
     { id: '2', text: 'Recuerda revisar las reglas antes de publicar.' },
@@ -210,10 +212,32 @@ export default function HomeScreen({ onLogout, navigation }) {
 
   // Componente funcional para cada publicación del feed
   const FeedItem = ({ item }) => {
+    const [showControls, setShowControls] = useState(false);
+    const hideControlsTimeout = useRef(null);
+
+    // Función para mostrar controles y ocultarlos después de un tiempo
+    const handleShowControls = () => {
+      setShowControls(true);
+      if (hideControlsTimeout.current) clearTimeout(hideControlsTimeout.current);
+      hideControlsTimeout.current = setTimeout(() => setShowControls(false), 2500);
+    };
+
+    // Limpiar timeout al desmontar
+    useEffect(() => {
+      return () => {
+        if (hideControlsTimeout.current) clearTimeout(hideControlsTimeout.current);
+      };
+    }, []);
     const [liked, setLiked] = useState(false);
     const [likeCount, setLikeCount] = useState(item.likes || 0);
     const [commentText, setCommentText] = useState('');
     const [comments, setComments] = useState(item.comments || []);
+    const [status, setStatus] = useState(null); // video status
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [isBuffering, setIsBuffering] = useState(false);
+    const [videoKey, setVideoKey] = useState(Date.now());
+    const [hasError, setHasError] = useState(false);
+    const videoRef = React.useRef(null);
 
     const handleLike = () => {
       setLiked(!liked);
@@ -229,30 +253,119 @@ export default function HomeScreen({ onLogout, navigation }) {
       }
     };
 
+    // Controlar reproducción y reinicio del video
+    const handlePlaybackStatusUpdate = (playbackStatus) => {
+      setStatus(playbackStatus);
+      setIsPlaying(playbackStatus.isPlaying);
+      setIsBuffering(playbackStatus.isBuffering);
+      if (playbackStatus.error) {
+        setHasError(true);
+      }
+      if (playbackStatus.didJustFinish) {
+        // Reiniciar video al terminar
+        videoRef.current?.setPositionAsync(0);
+        setIsPlaying(false);
+      }
+    };
+
+    // Si hay error, forzar remount del video
+    useEffect(() => {
+      if (hasError) {
+        setTimeout(() => {
+          setVideoKey(Date.now());
+          setHasError(false);
+        }, 300);
+      }
+    }, [hasError]);
+
+    const handleSeek = async (seconds) => {
+      if (!videoRef.current || typeof status?.positionMillis !== 'number') return;
+      try {
+        await videoRef.current.pauseAsync();
+        let newPosition = status.positionMillis + seconds * 1000;
+        if (newPosition < 0) newPosition = 0;
+        if (status.durationMillis && newPosition > status.durationMillis) newPosition = status.durationMillis;
+        await videoRef.current.setPositionAsync(newPosition);
+        await videoRef.current.playAsync();
+      } catch (e) {
+        setHasError(true);
+      }
+    };
+
+    const handlePlayPause = async () => {
+      if (!videoRef.current) return;
+      if (isPlaying) {
+        await videoRef.current.pauseAsync();
+      } else {
+        await videoRef.current.playAsync();
+      }
+    };
+
     return (
       <View style={styles.feedCard}>
         <View style={styles.feedHeader}>
           <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.feedAvatar} />
           <Text style={styles.feedUser}>{item.userName || 'Usuario'}</Text>
         </View>
-        {item.mediaUrl ? (
+        {item.mediaUrl && (
           item.mediaType === 'video' ? (
             <View style={styles.feedMediaContainer}>
-              <Video
-                source={{ uri: item.mediaUrl }}
-                style={styles.feedMedia}
-                useNativeControls
-                resizeMode="cover"
-              />
+              <TouchableOpacity
+                activeOpacity={1}
+                style={{ width: '100%', height: '100%' }}
+                onPress={handleShowControls}
+              >
+                <Video
+                  key={videoKey + item.mediaUrl}
+                  ref={videoRef}
+                  source={{ uri: item.mediaUrl }}
+                  style={styles.feedMedia}
+                  useNativeControls={false}
+                  resizeMode="contain"
+                  onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                  shouldPlay={false}
+                  isLooping={false}
+                />
+                {/* Spinner de carga */}
+                {isBuffering && (
+                  <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ backgroundColor: '#0008', borderRadius: 30, padding: 16 }}>
+                      <Text style={{ color: '#fff', fontSize: 18 }}>Cargando...</Text>
+                    </View>
+                  </View>
+                )}
+                {/* Si hay error, mostrar botón para recargar */}
+                {hasError && (
+                  <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+                    <TouchableOpacity onPress={() => { setVideoKey(Date.now()); setHasError(false); }} style={{ backgroundColor: '#e74c3c', borderRadius: 20, padding: 12 }}>
+                      <Text style={{ color: '#fff', fontSize: 16 }}>Reintentar video</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {/* Controles personalizados solo si showControls */}
+                {showControls && (
+                  <View style={{ position: 'absolute', bottom: 16, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10 }}>
+                    <TouchableOpacity onPress={() => handleSeek(-10)} style={{ backgroundColor: '#0008', borderRadius: 20, padding: 8 }}>
+                      <FontAwesome name="backward" size={22} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handlePlayPause} style={{ backgroundColor: '#0008', borderRadius: 20, padding: 8 }}>
+                      <FontAwesome name={isPlaying ? 'pause' : 'play'} size={24} color="#fff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleSeek(10)} style={{ backgroundColor: '#0008', borderRadius: 20, padding: 8 }}>
+                      <FontAwesome name="forward" size={22} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </TouchableOpacity>
             </View>
           ) : (
             <Image
               source={{ uri: item.mediaUrl }}
               style={styles.feedMedia}
-              resizeMode="cover"
+              resizeMode="contain"
             />
           )
-        ) : null}
+        )}
         {item.text ? <Text style={styles.feedText}>{item.text}</Text> : null}
         <View style={styles.feedActions}>
           <TouchableOpacity style={styles.feedActionBtn} onPress={handleLike}>
@@ -475,14 +588,15 @@ const styles = StyleSheet.create({
   },
   feedCard: {
     backgroundColor: '#fff',
-    borderRadius: 18,
-    marginBottom: 24,
-    paddingBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 8,
-    elevation: 4,
+    borderRadius: 12,
+    marginBottom: 12,
+    paddingBottom: 18,
+    paddingHorizontal: 0,
+    minHeight: 320,
+    width: '100%',
+    alignSelf: 'stretch',
+    shadowColor: 'transparent',
+    elevation: 0,
   },
   feedHeader: {
     flexDirection: 'row',
@@ -508,12 +622,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginHorizontal: 8,
     marginBottom: 8,
+    maxHeight: 340,
+    width: '96%',
+    alignSelf: 'center',
+    overflow: 'hidden',
   },
   feedMedia: {
     width: '100%',
-    height: 320,
-    borderRadius: 12,
+    aspectRatio: 1,
+    maxHeight: 340,
+    borderRadius: 10,
     backgroundColor: '#e7edf3',
+    resizeMode: 'contain',
   },
   feedText: {
     fontSize: 15,
