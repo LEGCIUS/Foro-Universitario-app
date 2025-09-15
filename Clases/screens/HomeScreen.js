@@ -506,54 +506,7 @@ export default function HomeScreen({ onLogout, navigation }) {
         </View>
       </Modal>
 
-      {/* Sección de publicaciones válidas */}
-      <ScrollView style={{ flex: 1, backgroundColor: "#fff", padding: 12 }}>
-        <Text style={[styles.sectionTitle, { color: "#000" }]}>Publicaciones</Text>
-        {publicacionesValidas.length === 0 ? (
-          <Text style={[styles.infoText, { color: "#000" }]}>No hay publicaciones.</Text>
-        ) : (
-          filas.map((fila, idx) => (
-            <View key={idx} style={{ flexDirection: 'row', marginBottom: 10 }}>
-              {fila.map((pub, j) => (
-                <View key={j} style={{
-                  flex: 1,
-                  aspectRatio: 1,
-                  marginHorizontal: 4,
-                  backgroundColor: '#e7edf3',
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  {pub.contenido === 'image' && (
-                    <Image
-                      source={{ uri: pub.archivo_url }}
-                      style={{ width: '100%', height: '100%' }}
-                      resizeMode="cover"
-                    />
-                  )}
-                  {pub.contenido === 'video' && (
-                    <Video
-                      source={{ uri: pub.archivo_url }}
-                      style={{ width: '100%', height: '100%' }}
-                      useNativeControls={false}
-                      resizeMode="cover"
-                      isLooping
-                    />
-                  )}
-                </View>
-              ))}
-              {fila.length === 1 && <View style={{
-                flex: 1,
-                aspectRatio: 1,
-                marginHorizontal: 4,
-                backgroundColor: '#e7edf3',
-                borderRadius: 8,
-              }} />}
-            </View>
-          ))
-        )}
-      </ScrollView>
+      {/* Sección de publicaciones válidas eliminada para quitar el título "Publicaciones" */}
     </View>
   );
 }

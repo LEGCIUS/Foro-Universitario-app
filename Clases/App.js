@@ -53,7 +53,10 @@ export default function App() {
     <NavigationContainer>
       {!isAuthenticated ? (
         <Stack.Navigator>
-          <Stack.Screen name="Login">
+          <Stack.Screen 
+            name="Login"
+            options={{ headerShown: false }}
+          >
             {props => <LoginScreen {...props} onLogin={handleLogin} />}
           </Stack.Screen>
         </Stack.Navigator>
