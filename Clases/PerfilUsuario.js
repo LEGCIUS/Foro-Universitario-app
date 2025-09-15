@@ -12,6 +12,7 @@ import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext'; 
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { Video } from 'expo-av';
+import Publications from '../Clases/Publications';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -425,16 +426,24 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
           filas.map((fila, idx) => (
             <View key={idx} style={{ flexDirection: 'row', marginBottom: 10 }}>
               {fila.map((pub, j) => (
-                <View key={j} style={{
-                  flex: 1,
-                  aspectRatio: 1,
-                  marginHorizontal: 4,
-                  backgroundColor: '#e7edf3',
-                  borderRadius: 8,
-                  overflow: 'hidden',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
+                <TouchableOpacity
+                  key={j}
+                  style={{
+                    flex: 1,
+                    aspectRatio: 1,
+                    marginHorizontal: 4,
+                    backgroundColor: '#e7edf3',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={() => navigation.navigate('Publicaciones', {
+                    posts,
+                    initialIndex: idx * 2 + j,
+                    darkMode,
+                  })}
+                >
                   {pub.contenido === 'image' && pub.archivo_url && (
                     <Image
                       source={{ uri: pub.archivo_url }}
@@ -451,18 +460,18 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
                       isLooping
                     />
                   )}
-                </View>
+                </TouchableOpacity>
               ))}
               {fila.length === 1 && <View style={{
                 flex: 1,
                 aspectRatio: 1,
                 marginHorizontal: 4,
-                backgroundColor: 'transparent',
+                backgroundColor: '#e7edf3 ',
                 borderRadius: 8,
               }} />}
             </View>
-          ))
-        )}
+          )))
+        }
       </ScrollView>
       {/* Modal para subir publicación */}
       <Modal visible={showPublishModal} animationType="slide" transparent>

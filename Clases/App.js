@@ -11,6 +11,7 @@ import PerfilUsuario from '../Clases/PerfilUsuario';
 import SettingScreen from './screens/SettingScreen';
 import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
+import Publications from '../Clases/Publications';
 import { useTheme } from './ThemeContext'; 
 
 const Stack = createNativeStackNavigator();
@@ -102,6 +103,11 @@ export default function App() {
             )}
           </Stack.Screen>
           <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} />
+          <Stack.Screen
+            name="Publicaciones"
+            component={Publications}
+            options={{ presentation: 'transparentModal', headerShown: false }}
+          />
         </Stack.Navigator>
       )}
     </NavigationContainer>
