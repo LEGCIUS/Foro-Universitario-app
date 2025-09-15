@@ -3,6 +3,8 @@ import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, S
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 
+const { width, height } = Dimensions.get('window');
+
 export default function Publications({ route, navigation }) {
   const { posts, initialIndex, darkMode } = route.params;
   const [currentIndex, setCurrentIndex] = useState(initialIndex || 0);
@@ -11,7 +13,6 @@ export default function Publications({ route, navigation }) {
   const [newComment, setNewComment] = useState('');
   const flatListRef = useRef();
 
-  // Actualiza likes y comentarios al cambiar de publicación
   const onViewableItemsChanged = React.useRef(({ viewableItems }) => {
     if (viewableItems.length > 0) {
       const idx = viewableItems[0].index;
@@ -34,6 +35,7 @@ export default function Publications({ route, navigation }) {
 
   const renderItem = ({ item }) => (
     <View style={styles.detailContainer}>
+      {/* Quita la X de aquí */}
       <View style={styles.mediaContainer}>
         {item.contenido === 'image' && item.archivo_url && (
           <Image
@@ -89,7 +91,7 @@ export default function Publications({ route, navigation }) {
 
   return (
     <View style={styles.overlay}>
-      {/* Solo una X arriba a la derecha para cerrar */}
+      {/* X fija arriba a la derecha */}
       <TouchableOpacity
         onPress={() => navigation.goBack()}
         style={styles.closeButton}
@@ -108,10 +110,12 @@ export default function Publications({ route, navigation }) {
         viewabilityConfig={viewConfigRef.current}
         showsVerticalScrollIndicator={false}
         getItemLayout={(_, index) => ({
-          length: Dimensions.get('window').height,
-          offset: Dimensions.get('window').height * index,
+          length: height,
+          offset: height * index,
           index,
         })}
+        snapToInterval={height}
+        decelerationRate="fast"
       />
     </View>
   );
@@ -121,8 +125,6 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   closeButton: {
     position: 'absolute',
@@ -133,8 +135,8 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   detailContainer: {
-    width: '100%',
-    height: Dimensions.get('window').height,
+    width: width,
+    height: height,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
