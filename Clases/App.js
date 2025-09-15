@@ -11,11 +11,13 @@ import PerfilUsuario from '../Clases/PerfilUsuario';
 import SettingScreen from './screens/SettingScreen';
 import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
+import { useTheme } from './ThemeContext'; 
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 export default function App() {
+  const { darkMode } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -71,6 +73,17 @@ export default function App() {
                   },
                   tabBarActiveTintColor: '#00C6FB',
                   tabBarInactiveTintColor: '#888',
+                  tabBarStyle: {
+                    backgroundColor: darkMode ? '#181818' : '#fff',
+                    borderTopColor: darkMode ? '#333' : '#eee',
+                  },
+                  headerStyle: {
+                    backgroundColor: darkMode ? '#181818' : '#fff',
+                  },
+                  headerTitleStyle: {
+                    color: darkMode ? '#fff' : '#222',
+                  },
+                  headerTintColor: darkMode ? '#fff' : '#222',
                   headerShown: false,
                 })}
               >

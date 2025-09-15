@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform, Modal, Alert } from 'react-native';
+import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform, Modal, Alert, ScrollView } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Audio } from 'expo-audio';
@@ -403,6 +403,19 @@ export default function HomeScreen({ onLogout, navigation }) {
     );
   };
 
+  // Filtra solo publicaciones válidas
+  const publicacionesValidas = posts.filter(
+    pub =>
+      pub.archivo_url &&
+      (pub.contenido === 'image' || pub.contenido === 'video')
+  );
+
+  // Agrupa en filas de dos
+  const filas = [];
+  for (let i = 0; i < publicacionesValidas.length; i += 2) {
+    filas.push(publicacionesValidas.slice(i, i + 2));
+  }
+
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.header}>
@@ -492,6 +505,55 @@ export default function HomeScreen({ onLogout, navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Sección de publicaciones válidas */}
+      <ScrollView style={{ flex: 1, backgroundColor: "#fff", padding: 12 }}>
+        <Text style={[styles.sectionTitle, { color: "#000" }]}>Publicaciones</Text>
+        {publicacionesValidas.length === 0 ? (
+          <Text style={[styles.infoText, { color: "#000" }]}>No hay publicaciones.</Text>
+        ) : (
+          filas.map((fila, idx) => (
+            <View key={idx} style={{ flexDirection: 'row', marginBottom: 10 }}>
+              {fila.map((pub, j) => (
+                <View key={j} style={{
+                  flex: 1,
+                  aspectRatio: 1,
+                  marginHorizontal: 4,
+                  backgroundColor: '#e7edf3',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  {pub.contenido === 'image' && (
+                    <Image
+                      source={{ uri: pub.archivo_url }}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                  )}
+                  {pub.contenido === 'video' && (
+                    <Video
+                      source={{ uri: pub.archivo_url }}
+                      style={{ width: '100%', height: '100%' }}
+                      useNativeControls={false}
+                      resizeMode="cover"
+                      isLooping
+                    />
+                  )}
+                </View>
+              ))}
+              {fila.length === 1 && <View style={{
+                flex: 1,
+                aspectRatio: 1,
+                marginHorizontal: 4,
+                backgroundColor: '#e7edf3',
+                borderRadius: 8,
+              }} />}
+            </View>
+          ))
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -737,6 +799,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 8,
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
     marginTop: 8,
   },
 });
