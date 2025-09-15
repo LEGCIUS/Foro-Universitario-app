@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import SplashScreenCustom from './SplashScreenCustom';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -17,17 +19,23 @@ import { useTheme } from './ThemeContext';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+
 export default function App() {
   const { darkMode } = useTheme();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    SplashScreen.preventAutoHideAsync();
     // Verifica si hay sesión guardada
     const checkAuth = async () => {
       const token = await AsyncStorage.getItem('userToken');
       setIsAuthenticated(!!token);
-      setLoading(false);
+      // Espera 5 segundos exactos antes de continuar
+      setTimeout(async () => {
+        setLoading(false);
+        await SplashScreen.hideAsync();
+      }, 10000);
     };
     checkAuth();
   }, []);
@@ -45,8 +53,9 @@ export default function App() {
     setIsAuthenticated(false);
   };
 
+
   if (loading) {
-    return null; // Aquí podrías mostrar un SplashScreen
+    return <SplashScreenCustom />;
   }
 
   return (
