@@ -1,5 +1,5 @@
 //Antes de hacer el commit, asegurarme de avisar a los demas por si estan trabajando en el mismo archivo
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,11 +8,11 @@ import { Buffer } from 'buffer';
 import { supabase } from '../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext'; 
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { Video } from 'expo-av';
-import Publications from '../Clases/Publications';
+import ImageViewing from 'react-native-image-viewing';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -51,7 +51,7 @@ export default function PerfilUsuario({ navigation }) {
     }, [])
   );
 
-  // Selecciona imagen y súbela a Supabase Storage
+  // Cambiar foto de perfil
   const pickImageAndUpload = async () => {
     let result;
     if (Platform.OS === 'web') {
@@ -67,24 +67,20 @@ export default function PerfilUsuario({ navigation }) {
         const fileName = file.name || 'perfil.jpg';
         const fileType = file.type || 'image/jpeg';
         const filePath = `${usuario.carnet}/${fileName}`;
-
         const { data, error } = await supabase.storage
           .from('fotos-perfil')
           .upload(filePath, file, {
             contentType: fileType,
             upsert: true,
           });
-
         if (error) {
           Alert.alert('Error', error.message || 'No se pudo subir la imagen');
           return;
         }
-
         const { data: publicData } = supabase
           .storage
           .from('fotos-perfil')
           .getPublicUrl(data.path);
-
         setNuevaFoto(publicData.publicUrl);
       }
     } else {
@@ -98,65 +94,48 @@ export default function PerfilUsuario({ navigation }) {
         const uri = result.assets[0].uri;
         const fileName = uri.split('/').pop();
         const fileType = fileName.split('.').pop();
-        const filePath = `${usuario.carnet}/perfil.${fileType}`; // Siempre el mismo nombre
-
+        const filePath = `${usuario.carnet}/perfil.${fileType}`;
         const base64 = await FileSystem.readAsStringAsync(uri, {
           encoding: 'base64',
         });
         const fileBuffer = Buffer.from(base64, 'base64');
-
         const { data, error } = await supabase.storage
           .from('fotos-perfil')
           .upload(filePath, fileBuffer, {
             contentType: `image/${fileType}`,
             upsert: true,
           });
-
         if (error || !data) {
           Alert.alert('Error al subir la imagen', error?.message || 'No se pudo subir la imagen al storage.');
           return;
         }
-
-        // Obtiene la URL pública y le agrega un parámetro único para evitar caché
         const { data: publicData } = supabase
           .storage
           .from('fotos-perfil')
           .getPublicUrl(filePath);
-
         if (!publicData || !publicData.publicUrl) {
           Alert.alert('Error', 'No se pudo obtener la URL pública de la imagen.');
           return;
         }
-
         const urlConTimestamp = publicData.publicUrl + `?t=${Date.now()}`;
         setNuevaFoto(urlConTimestamp);
-        // Actualiza la foto en la base de datos y en el estado global
-        const { error: updateError } = await supabase
+        await supabase
           .from('usuarios')
           .update({ foto_perfil: urlConTimestamp })
           .eq('carnet', usuario.carnet);
-        if (updateError) {
-          Alert.alert('Error', 'No se pudo actualizar la foto en la base de datos: ' + updateError.message);
-        } else {
-          setUsuario({ ...usuario, foto_perfil: urlConTimestamp });
-          Alert.alert('Éxito', 'La foto de perfil se actualizó correctamente.');
-        }
+        setUsuario({ ...usuario, foto_perfil: urlConTimestamp });
       }
     }
   };
 
   const handleGuardar = async () => {
     setLoading(true);
-    const { error } = await supabase
+    await supabase
       .from('usuarios')
       .update({ biografia: nuevaBio, foto_perfil: nuevaFoto })
       .eq('carnet', usuario.carnet);
     setLoading(false);
-    if (error) {
-      Alert.alert('Error', 'No se pudo actualizar el perfil');
-    } else {
-      setUsuario({ ...usuario, biografia: nuevaBio, foto_perfil: nuevaFoto });
-    }
+    setUsuario({ ...usuario, biografia: nuevaBio, foto_perfil: nuevaFoto });
   };
 
   if (loading) {
@@ -213,7 +192,7 @@ export default function PerfilUsuario({ navigation }) {
             {() => <InfoTab usuario={usuario} darkMode={darkMode} />}
           </Tab.Screen>
           <Tab.Screen name="Publicaciones">
-            {() => <PublicacionesTab usuario={usuario} darkMode={darkMode} navigation={navigation} />}
+            {() => <PublicacionesTab usuario={usuario} darkMode={darkMode} />}
           </Tab.Screen>
         </Tab.Navigator>
       </View>
@@ -246,9 +225,11 @@ function InfoTab({ usuario, darkMode }) {
   );
 }
 
-function PublicacionesTab({ usuario, darkMode, navigation }) {
+function PublicacionesTab({ usuario, darkMode }) {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [showZoom, setShowZoom] = useState(false);
 
   // Modal y publicación
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -256,6 +237,13 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
   const [previewMedia, setPreviewMedia] = useState(null);
   const [mediaType, setMediaType] = useState(null);
   const [uploading, setUploading] = useState(false);
+
+  // Likes y comentarios visuales
+  const [likes, setLikes] = useState(0);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [videoKey, setVideoKey] = useState(0);
+  const videoRef = useRef(null);
 
   useEffect(() => {
     const fetchPosts = async () => {
@@ -353,8 +341,7 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
           .getPublicUrl(filePath);
         publicUrl = publicData.publicUrl + `?t=${Date.now()}`;
       }
-      // Guardar publicación en la base de datos
-      const { error } = await supabase
+      await supabase
         .from('publicaciones')
         .insert([{
           titulo: newPost,
@@ -363,27 +350,23 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
           fecha_publicacion: new Date().toISOString(),
           carnet_usuario: carnet,
         }]);
-      if (error) {
-        Alert.alert('Error', 'No se pudo publicar.');
-      } else {
-        setNewPost('');
-        setPreviewMedia(null);
-        setMediaType(null);
-        setShowPublishModal(false);
-        // Recargar publicaciones
-        const { data, error } = await supabase
-          .from('publicaciones')
-          .select('*')
-          .eq('carnet_usuario', usuario.carnet)
-          .order('fecha_publicacion', { ascending: false });
-        if (!error && data) {
-          const soloValidas = data.filter(
-            pub =>
-              !!pub.archivo_url &&
-              (pub.contenido === 'image' || pub.contenido === 'video')
-          );
-          setPosts(soloValidas);
-        }
+      setNewPost('');
+      setPreviewMedia(null);
+      setMediaType(null);
+      setShowPublishModal(false);
+      // Recargar publicaciones
+      const { data, error } = await supabase
+        .from('publicaciones')
+        .select('*')
+        .eq('carnet_usuario', usuario.carnet)
+        .order('fecha_publicacion', { ascending: false });
+      if (!error && data) {
+        const soloValidas = data.filter(
+          pub =>
+            !!pub.archivo_url &&
+            (pub.contenido === 'image' || pub.contenido === 'video')
+        );
+        setPosts(soloValidas);
       }
     } catch (err) {
       Alert.alert('Error', 'Ocurrió un error inesperado.');
@@ -399,7 +382,7 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
     );
   }
 
-  // Agrupa solo publicaciones válidas en filas de dos
+  // Agrupa publicaciones en filas de dos
   const filas = [];
   for (let i = 0; i < posts.length; i += 2) {
     filas.push(posts.slice(i, i + 2));
@@ -438,11 +421,12 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
-                  onPress={() => navigation.navigate('Publicaciones', {
-                    posts,
-                    initialIndex: idx * 2 + j,
-                    darkMode,
-                  })}
+                  onPress={() => {
+                    setSelectedPost(pub);
+                    setLikes(pub.likes || 0);
+                    setComments(pub.comentarios || []);
+                    setVideoKey(0);
+                  }}
                 >
                   {pub.contenido === 'image' && pub.archivo_url && (
                     <Image
@@ -457,7 +441,6 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
                       style={{ width: '100%', height: '100%' }}
                       useNativeControls={false}
                       resizeMode="cover"
-                      isLooping
                     />
                   )}
                 </TouchableOpacity>
@@ -466,7 +449,7 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
                 flex: 1,
                 aspectRatio: 1,
                 marginHorizontal: 4,
-                backgroundColor: '#e7edf3 ',
+                backgroundColor: '#e7edf3',
                 borderRadius: 8,
               }} />}
             </View>
@@ -538,6 +521,98 @@ function PublicacionesTab({ usuario, darkMode, navigation }) {
           </View>
         </View>
       </Modal>
+      {/* Modal para ver publicación seleccionada */}
+      <Modal
+        visible={!!selectedPost}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedPost(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPressOut={() => setSelectedPost(null)}
+        >
+          <View style={styles.centeredView}>
+            <TouchableOpacity
+              activeOpacity={1}
+              style={styles.modalContent}
+              onPress={() => {}}
+            >
+              {selectedPost?.contenido === 'image' && (
+                <>
+                  <TouchableOpacity onPress={() => setShowZoom(true)}>
+                    <Image
+                      source={{ uri: selectedPost.archivo_url }}
+                      style={styles.previewMedia}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                  <ImageViewing
+                    images={[{ uri: selectedPost.archivo_url }]}
+                    imageIndex={0}
+                    visible={showZoom}
+                    onRequestClose={() => setShowZoom(false)}
+                  />
+                </>
+              )}
+              {selectedPost?.contenido === 'video' && (
+                <Video
+                  key={videoKey}
+                  ref={videoRef}
+                  source={{ uri: selectedPost.archivo_url }}
+                  style={styles.previewMedia}
+                  useNativeControls
+                  resizeMode="contain"
+                  onEnd={() => setVideoKey(prev => prev + 1)}
+                />
+              )}
+              <Text style={styles.modalTitle}>{selectedPost?.titulo}</Text>
+              <Text style={{ fontSize: 15, color: '#444', marginBottom: 8 }}>
+                {selectedPost?.descripcion || selectedPost?.titulo}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <TouchableOpacity onPress={() => setLikes(likes + 1)} style={{ marginRight: 8 }}>
+                  <MaterialIcons name="thumb-up" size={24} color="#007AFF" />
+                </TouchableOpacity>
+                <Text>{likes} Me gusta</Text>
+              </View>
+              <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Comentarios:</Text>
+              <ScrollView style={{ maxHeight: 80, marginBottom: 8 }}>
+                {comments.length === 0 ? (
+                  <Text style={{ color: '#888' }}>Sin comentarios.</Text>
+                ) : (
+                  comments.map((c, idx) => (
+                    <Text key={idx} style={{ marginBottom: 2 }}>
+                      <Text style={{ fontWeight: 'bold' }}>{c.usuario || 'Usuario'}: </Text>
+                      {c.texto}
+                    </Text>
+                  ))
+                )}
+              </ScrollView>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TextInput
+                  style={[styles.input, { flex: 1, height: 36, marginBottom: 0 }]}
+                  placeholder="Escribe un comentario..."
+                  value={newComment}
+                  onChangeText={setNewComment}
+                />
+                <TouchableOpacity
+                  onPress={() => {
+                    if (newComment.trim()) {
+                      setComments([...comments, { usuario: 'Tú', texto: newComment }]);
+                      setNewComment('');
+                    }
+                  }}
+                  style={{ marginLeft: 8 }}
+                >
+                  <MaterialIcons name="send" size={24} color="#007AFF" />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -587,12 +662,6 @@ const styles = StyleSheet.create({
   quickRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   quickText: { fontSize: 15, color: '#4e7397', marginLeft: 8, alignSelf: 'flex-start' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  postCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#eee', width: '100%' },
-  postInfo: { flex: 1 },
-  postPublicado: { fontSize: 13, color: '#888', marginBottom: 2 },
-  postTitulo: { fontSize: 17, fontWeight: 'bold', marginBottom: 2, color: '#222' },
-  postTexto: { fontSize: 15, color: '#444' },
-  postPublicado: { fontSize: 13, color: '#888', marginBottom: 2 },
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -600,12 +669,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
   },
   modalContent: {
-    width: '90%',
-    maxWidth: 400,
+    width: '96%',
+    maxWidth: 500,
     backgroundColor: '#fff',
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 16,
     elevation: 5,
+    marginTop: 20,
+    marginBottom: 20,
+    alignSelf: 'center',
   },
   modalTitle: {
     fontSize: 18,
@@ -638,7 +710,9 @@ const styles = StyleSheet.create({
   },
   previewMedia: {
     width: '100%',
-    height: '100%',
+    height: 400,
+    borderRadius: 8,
+    marginBottom: 12,
   },
   clearPreviewButton: {
     position: 'absolute',
@@ -676,6 +750,76 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  fullMediaModalContent: {
+    width: '96%',
+    maxWidth: 500,
+    height: 500,
+    backgroundColor: '#000',
+    borderRadius: 16,
+    overflow: 'hidden',
+    alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullMedia: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
+  overlayButtons: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    flexDirection: 'column',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  overlayButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 24,
+    padding: 8,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  overlayButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+    marginTop: 2,
+  },
+  overlayDescription: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 16,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  descriptionText: {
+    color: '#fff',
+    fontSize: 15,
+    marginBottom: 8,
+  },
+  commentsModal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    padding: 16,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    zIndex: 10,
   },
 });
 

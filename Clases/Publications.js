@@ -1,17 +1,20 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal } from 'react-native';
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
 
 export default function Publications({ route, navigation }) {
-  const { posts, initialIndex, darkMode } = route.params;
-  const [currentIndex, setCurrentIndex] = useState(initialIndex || 0);
-  const [likes, setLikes] = useState(posts[currentIndex]?.likes || 0);
-  const [comments, setComments] = useState(posts[currentIndex]?.comentarios || []);
+  const { posts, initialIndex = 0, darkMode } = route.params;
+
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [likes, setLikes] = useState(posts[initialIndex]?.likes || 0);
+  const [comments, setComments] = useState(posts[initialIndex]?.comentarios || []);
   const [newComment, setNewComment] = useState('');
+  const [selectedPost, setSelectedPost] = useState(null);
   const flatListRef = useRef();
+  const videoRefs = useRef([]);
 
   const onViewableItemsChanged = React.useRef(({ viewableItems }) => {
     if (viewableItems.length > 0) {
@@ -33,9 +36,8 @@ export default function Publications({ route, navigation }) {
     }
   };
 
-  const renderItem = ({ item }) => (
+  const renderItem = ({ item, index }) => (
     <View style={styles.detailContainer}>
-      {/* Quita la X de aquí */}
       <View style={styles.mediaContainer}>
         {item.contenido === 'image' && item.archivo_url && (
           <Image
@@ -46,6 +48,7 @@ export default function Publications({ route, navigation }) {
         )}
         {item.contenido === 'video' && item.archivo_url && (
           <Video
+            ref={ref => videoRefs.current[index] = ref}
             source={{ uri: item.archivo_url }}
             style={styles.media}
             useNativeControls
@@ -89,6 +92,14 @@ export default function Publications({ route, navigation }) {
     </View>
   );
 
+  React.useEffect(() => {
+    videoRefs.current.forEach((video, idx) => {
+      if (video && idx !== currentIndex) {
+        video.pauseAsync && video.pauseAsync();
+      }
+    });
+  }, [currentIndex]);
+
   return (
     <View style={styles.overlay}>
       {/* X fija arriba a la derecha */}
@@ -105,7 +116,7 @@ export default function Publications({ route, navigation }) {
         keyExtractor={(_, idx) => idx.toString()}
         pagingEnabled
         horizontal={false}
-        initialScrollIndex={currentIndex}
+        initialScrollIndex={initialIndex}
         onViewableItemsChanged={onViewableItemsChanged.current}
         viewabilityConfig={viewConfigRef.current}
         showsVerticalScrollIndicator={false}
@@ -116,7 +127,54 @@ export default function Publications({ route, navigation }) {
         })}
         snapToInterval={height}
         decelerationRate="fast"
+        initialNumToRender={1}
+        maxToRenderPerBatch={2}
+        windowSize={3}
+        removeClippedSubviews={true}
+        onScrollToIndexFailed={({ index }) => {
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({ index, animated: true });
+          }, 100);
+        }}
       />
+
+      {/* Modal para mostrar la publicación seleccionada */}
+      <Modal
+        visible={!!selectedPost}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedPost(null)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPressOut={() => setSelectedPost(null)} // Cierra al tocar fuera
+        >
+          <View style={styles.centeredView}>
+            <View style={styles.modalContent}>
+              {/* Aquí el contenido de la publicación */}
+              {selectedPost?.contenido === 'image' && (
+                <Image
+                  source={{ uri: selectedPost.archivo_url }}
+                  style={styles.media}
+                  resizeMode="contain"
+                />
+              )}
+              {selectedPost?.contenido === 'video' && (
+                <Video
+                  source={{ uri: selectedPost.archivo_url }}
+                  style={styles.media}
+                  useNativeControls
+                  resizeMode="contain"
+                  isLooping
+                />
+              )}
+              <Text style={styles.title}>{selectedPost?.titulo}</Text>
+              {/* Likes, comentarios, etc. */}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -205,5 +263,38 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)', // Fondo semitransparente
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    width: '90%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  media: {
+    width: 300,
+    height: 300,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#222',
+    textAlign: 'center',
   },
 });
