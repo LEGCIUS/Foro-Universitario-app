@@ -203,7 +203,7 @@ export default function PerfilUsuario({ navigation }) {
 function InfoTab({ usuario, darkMode }) {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: darkMode ? "#181818" : "#fff", padding: 24 }}>
-      <Text style={[styles.infoText, darkMode && { color: "#fff" }]}>Estudiante</Text>
+      <Text style={[styles.sectionTitle, darkMode && { color: "#fff" }]}>Estudiante</Text>
       <View style={styles.infoList}>
         <View style={styles.infoRow}><MaterialIcons name="email" size={20} color="#007AFF" /><Text style={styles.infoText}>{usuario.correo}</Text></View>
         <View style={styles.infoRow}><MaterialIcons name="phone" size={20} color="#007AFF" /><Text style={styles.infoText}>+506 8888 8888</Text></View>
@@ -218,7 +218,7 @@ function InfoTab({ usuario, darkMode }) {
       <View style={styles.quickList}>
         <View style={styles.quickRow}><MaterialIcons name="settings" size={20} color="#007AFF" /><Text style={styles.quickText}>Configuración</Text></View>
         <View style={styles.quickRow}><MaterialIcons name="notifications" size={20} color="#007AFF" /><Text style={styles.quickText}>Notificaciones</Text></View>
-        <View style={styles.quickRow}><MaterialIcons name="credit-card" size={20} color="#007AFF" /><Text style={styles.quickText}>Métodos de pago</Text></View>
+      
         <View style={styles.quickRow}><MaterialIcons name="history" size={20} color="#007AFF" /><Text style={styles.quickText}>Historial</Text></View>
       </View>
     </ScrollView>
@@ -244,6 +244,13 @@ function PublicacionesTab({ usuario, darkMode }) {
   const [newComment, setNewComment] = useState('');
   const [videoKey, setVideoKey] = useState(0);
   const videoRef = useRef(null);
+
+  // Mantener el estado menuVisible
+  const [menuVisible, setMenuVisible] = useState(null);
+
+  // Nuevo: confirmación estilizada para eliminar
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [pendingDeletePost, setPendingDeletePost] = useState(null);
 
   useEffect(() => {
     const fetchPosts = async () => {
@@ -314,38 +321,41 @@ function PublicacionesTab({ usuario, darkMode }) {
   };
 
   const handleDeletePost = (post) => {
-    Alert.alert(
-      'Eliminar publicación',
-      '¿Deseas eliminar esta publicación? Esta acción no se puede deshacer.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // 1) Eliminar archivo del storage si existe
-              const storagePath = extractMultimediaPath(post.archivo_url);
-              if (storagePath) {
-                await supabase.storage.from('multimedia').remove([storagePath]);
-              }
-              // 2) Eliminar fila en la base de datos
-              await supabase
-                .from('publicaciones')
-                .delete()
-                .eq('id', post.id)
-                .eq('carnet_usuario', usuario.carnet);
-              // 3) Actualizar UI
-              setPosts((prev) => prev.filter((p) => p.id !== post.id));
-              setSelectedPost(null);
-              Alert.alert('Eliminada', 'La publicación se eliminó correctamente.');
-            } catch (err) {
-              Alert.alert('Error', 'No se pudo eliminar la publicación.');
-            }
-          },
-        },
-      ]
-    );
+    setPendingDeletePost(post);
+    setConfirmDeleteVisible(true);
+  };
+
+  const performDeletePost = async () => {
+    const post = pendingDeletePost;
+    if (!post) return;
+    try {
+      // 1) Eliminar archivo del storage si existe
+      const storagePath = extractMultimediaPath(post.archivo_url);
+      if (storagePath) {
+        await supabase.storage.from('multimedia').remove([storagePath]);
+      }
+      // 2) Eliminar fila en la base de datos
+      await supabase
+        .from('publicaciones')
+        .delete()
+        .eq('id', post.id)
+        .eq('carnet_usuario', usuario.carnet);
+      // 3) Actualizar UI
+      setPosts((prev) => prev.filter((p) => p.id !== post.id));
+      setSelectedPost(null);
+      setConfirmDeleteVisible(false);
+      setPendingDeletePost(null);
+      Alert.alert('Eliminada', 'La publicación se eliminó correctamente.');
+    } catch (err) {
+      setConfirmDeleteVisible(false);
+      setPendingDeletePost(null);
+      Alert.alert('Error', 'No se pudo eliminar la publicación.');
+    }
+  };
+
+  const cancelDelete = () => {
+    setConfirmDeleteVisible(false);
+    setPendingDeletePost(null);
   };
 
   // Elegir imagen/video
@@ -468,13 +478,16 @@ function PublicacionesTab({ usuario, darkMode }) {
     <View style={{ flex: 1 }}>
       <ScrollView style={{ flex: 1, backgroundColor: darkMode ? "#181818" : "#fff", padding: 12 }}>
         <TouchableOpacity
-          style={{
-            backgroundColor: darkMode ? "#007AFF" : "#222",
-            padding: 10,
-            borderRadius: 8,
-            marginBottom: 16,
-            alignSelf: 'flex-start'
-          }}
+          style={[
+            {
+              backgroundColor: darkMode ? "#007AFF" : "#222",
+              padding: 10,
+              borderRadius: 8,
+              marginBottom: 16,
+              alignSelf: 'flex-start'
+            },
+            darkMode && styles.uploadButtonDark
+          ]}
           onPress={() => setShowPublishModal(true)}
         >
           <Text style={{ color: "#fff", fontWeight: "bold" }}>Subir publicación</Text>
@@ -519,14 +532,6 @@ function PublicacionesTab({ usuario, darkMode }) {
                       resizeMode="cover"
                     />
                   )}
-                  {/* Botón eliminar en mosaico */}
-                  <TouchableOpacity
-                    onPress={() => handleDeletePost(pub)}
-                    style={{ position: 'absolute', top: 6, right: 6, backgroundColor: 'rgba(255,59,48,0.9)', borderRadius: 16, padding: 6 }}
-                    activeOpacity={0.9}
-                  >
-                    <MaterialIcons name="delete" size={18} color="#fff" />
-                  </TouchableOpacity>
                 </TouchableOpacity>
               ))}
               {fila.length === 1 && <View style={{
@@ -546,8 +551,9 @@ function PublicacionesTab({ usuario, darkMode }) {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Crear publicación</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, darkMode && styles.inputDark]}
               placeholder="Escribe una historia o descripción..."
+              placeholderTextColor={darkMode ? "#bbb" : "#999"}
               value={newPost}
               onChangeText={setNewPost}
               maxLength={280}
@@ -582,10 +588,10 @@ function PublicacionesTab({ usuario, darkMode }) {
               </View>
             )}
             <View style={styles.mediaRow}>
-              <TouchableOpacity onPress={() => pickMedia('image')} style={styles.mediaButton} disabled={uploading}>
+              <TouchableOpacity onPress={() => pickMedia('image')} style={[styles.mediaButton, darkMode && styles.mediaButtonDark]} disabled={uploading}>
                 <Text style={styles.buttonText}>🖼️</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => pickMedia('video')} style={styles.mediaButton} disabled={uploading}>
+              <TouchableOpacity onPress={() => pickMedia('video')} style={[styles.mediaButton, darkMode && styles.mediaButtonDark]} disabled={uploading}>
                 <Text style={styles.buttonText}>🎬</Text>
               </TouchableOpacity>
             </View>
@@ -593,13 +599,14 @@ function PublicacionesTab({ usuario, darkMode }) {
               onPress={handleAddPost}
               style={[
                 styles.button,
+                darkMode && styles.buttonDark,
                 { backgroundColor: (newPost.trim() || previewMedia) ? '#007bff' : '#aaa', marginTop: 12 }
               ]}
               disabled={uploading || (!newPost.trim() && !previewMedia)}
             >
               <Text style={styles.buttonText}>{uploading ? 'Publicando...' : 'Publicar'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowPublishModal(false)} style={[styles.button, { backgroundColor: '#FF3B30', marginTop: 8 }]}>
+            <TouchableOpacity onPress={() => setShowPublishModal(false)} style={[styles.button, darkMode && styles.buttonDark, { backgroundColor: '#FF3B30', marginTop: 8 }]}>
               <Text style={styles.buttonText}>Cancelar</Text>
             </TouchableOpacity>
           </View>
@@ -610,30 +617,58 @@ function PublicacionesTab({ usuario, darkMode }) {
         visible={!!selectedPost}
         transparent
         animationType="fade"
-        onRequestClose={() => setSelectedPost(null)}
+        onRequestClose={() => {
+          setSelectedPost(null);
+          setMenuVisible(null); // Añadir esto
+        }}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPressOut={() => setSelectedPost(null)}
+          onPressOut={() => {
+            setSelectedPost(null);
+            setMenuVisible(null); // Añadir esto
+          }}
         >
           <View style={styles.centeredView}>
             <TouchableOpacity
               activeOpacity={1}
-              style={styles.modalContent}
-              onPress={() => {}}
+              style={[styles.modalContent, darkMode && styles.modalContentDark]}
+              onPress={() => setMenuVisible(null)}
             >
-              {/* Botón eliminar en modal */}
+             
+              {/* Menú de tres puntos en el modal */}
               {selectedPost && (
-                <View style={{ position: 'absolute', top: 10, right: 10, zIndex: 10 }}>
-                  <TouchableOpacity onPress={() => handleDeletePost(selectedPost)} style={{ backgroundColor: '#FF3B30', padding: 8, borderRadius: 20 }}>
-                    <MaterialIcons name="delete-forever" size={22} color="#fff" />
+                <View style={styles.overlayButtons}>
+                  <TouchableOpacity 
+                    onPress={() => setMenuVisible(menuVisible === selectedPost.id ? null : selectedPost.id)}
+                    style={styles.overlayButton}
+                  >
+                    <MaterialIcons name="more-vert" size={24} color="#fff" />
                   </TouchableOpacity>
+
+                  {menuVisible === selectedPost.id && (
+                    <View style={[styles.overlayMenu, darkMode && styles.overlayMenuDark]}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setMenuVisible(null);
+                          handleDeletePost(selectedPost);
+                        }}
+                        style={styles.overlayMenuItem}
+                      >
+                        <MaterialIcons name="delete" size={18} color="#FF3B30" />
+                        <Text style={[styles.overlayMenuText, darkMode && styles.overlayMenuTextDark, { color: '#FF3B30' }]}>Eliminar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               )}
               {selectedPost?.contenido === 'image' && (
                 <>
-                  <TouchableOpacity onPress={() => setShowZoom(true)}>
+                  <TouchableOpacity onPress={() => {
+                    setShowZoom(true);
+                    setMenuVisible(null); // Añadir esta línea
+                  }}>
                     <Image
                       source={{ uri: selectedPost.archivo_url }}
                       style={styles.previewMedia}
@@ -644,7 +679,10 @@ function PublicacionesTab({ usuario, darkMode }) {
                     images={[{ uri: selectedPost.archivo_url }]}
                     imageIndex={0}
                     visible={showZoom}
-                    onRequestClose={() => setShowZoom(false)}
+                    onRequestClose={() => {
+                      setShowZoom(false);
+                      setMenuVisible(null); // Añadir esta línea
+                    }}
                   />
                 </>
               )}
@@ -659,33 +697,35 @@ function PublicacionesTab({ usuario, darkMode }) {
                   onEnd={() => setVideoKey(prev => prev + 1)}
                 />
               )}
-              <Text style={styles.modalTitle}>{selectedPost?.titulo}</Text>
-              <Text style={{ fontSize: 15, color: '#444', marginBottom: 8 }}>
+              <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>{selectedPost?.titulo}</Text>
+              <Text style={[styles.modalText, darkMode && styles.modalTextDark, { fontSize: 15, marginBottom: 8 }]}>
                 {selectedPost?.descripcion || selectedPost?.titulo}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                 <TouchableOpacity onPress={() => setLikes(likes + 1)} style={{ marginRight: 8 }}>
                   <MaterialIcons name="thumb-up" size={24} color="#007AFF" />
                 </TouchableOpacity>
-                <Text>{likes} Me gusta</Text>
+                <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{likes} Me gusta</Text>
               </View>
-              <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>Comentarios:</Text>
+
+              <Text style={[styles.sectionTitle, { marginTop: 8, color: darkMode ? '#fff' : '#222' }]}>Comentarios:</Text>
               <ScrollView style={{ maxHeight: 80, marginBottom: 8 }}>
                 {comments.length === 0 ? (
-                  <Text style={{ color: '#888' }}>Sin comentarios.</Text>
+                  <Text style={[styles.placeholderText, darkMode && styles.placeholderTextDark]}>Sin comentarios.</Text>
                 ) : (
                   comments.map((c, idx) => (
-                    <Text key={idx} style={{ marginBottom: 2 }}>
-                      <Text style={{ fontWeight: 'bold' }}>{c.usuario || 'Usuario'}: </Text>
-                      {c.texto}
+                    <Text key={idx} style={[styles.commentItem, darkMode && styles.commentItemDark]}>
+                      <Text style={[styles.commentAuthor, darkMode && styles.commentAuthorDark]}>{c.usuario || 'Usuario'}: </Text>
+                      <Text style={[styles.commentText, darkMode && styles.commentTextDark]}>{c.texto}</Text>
                     </Text>
                   ))
                 )}
               </ScrollView>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <TextInput
-                  style={[styles.input, { flex: 1, height: 36, marginBottom: 0 }]}
+                  style={[styles.input, { flex: 1, height: 36, marginBottom: 0 }, darkMode && styles.inputDark]}
                   placeholder="Escribe un comentario..."
+                  placeholderTextColor={darkMode ? "#bbb" : "#999"}
                   value={newComment}
                   onChangeText={setNewComment}
                 />
@@ -705,30 +745,48 @@ function PublicacionesTab({ usuario, darkMode }) {
           </View>
         </TouchableOpacity>
       </Modal>
+      {/* Confirmación estilizada para eliminar */}
+      <Modal transparent visible={confirmDeleteVisible} animationType="fade" onRequestClose={cancelDelete}>
+        <View style={styles.confirmModalContainer}>
+          <View style={[styles.confirmModalContent, darkMode && styles.confirmModalContentDark]}>
+            <Text style={[styles.confirmTitle, darkMode && styles.confirmTitleDark]}>Eliminar publicación</Text>
+            <Text style={[styles.confirmText, darkMode && styles.confirmTextDark]}>¿Estás seguro que deseas eliminar esta publicación? Esta acción no se puede deshacer.</Text>
+            <View style={styles.confirmButtonsRow}>
+              <TouchableOpacity style={[styles.confirmButton, styles.confirmCancelButton, darkMode && styles.confirmCancelButtonDark]} onPress={cancelDelete}>
+                <Text style={[styles.confirmButtonText, darkMode && styles.confirmButtonTextDark]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmButton, styles.confirmDeleteButton]} onPress={performDeletePost}>
+                <Text style={[styles.confirmButtonText, { fontWeight: '700', color: '#fff' }]}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
+
   perfilContainer: {
     flex: 1,
     width: '100%',
     minHeight: '100%',
     justifyContent: 'flex-start',
     backgroundColor: '#fff',
-    borderRadius: 0,
-    margin: 0,
     paddingTop: 32,
     paddingBottom: 32,
     paddingHorizontal: 0,
   },
+
   leftAligned: {
     alignItems: 'flex-start',
     paddingLeft: 24,
     paddingRight: 24,
     width: '100%',
   },
+
   avatarShadow: {
     shadowColor: '#007AFF',
     shadowOffset: { width: 0, height: 2 },
@@ -739,27 +797,65 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     alignSelf: 'flex-start',
   },
-  avatar: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: '#007AFF', backgroundColor: '#fff' },
-  avatarPlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#eee', alignItems: 'center', justifyContent: 'center' },
+
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#007AFF',
+    backgroundColor: '#fff',
+  },
+
+  avatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#eee',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   avatarText: { fontSize: 40, color: '#888' },
-  nombre: { fontSize: 22, fontWeight: 'bold', marginBottom: 2, color: '#0e141b', alignSelf: 'flex-start' },
+
+  nombre: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 2,
+    color: '#0e141b',
+    alignSelf: 'flex-start',
+  },
+
   infoList: { marginBottom: 12, alignSelf: 'flex-start' },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   infoText: { fontSize: 15, color: '#4e7397', marginLeft: 8, alignSelf: 'flex-start' },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 16, marginBottom: 8, color: '#222', alignSelf: 'flex-start' },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+    color: '#222',
+    alignSelf: 'flex-start',
+  },
+
   statsList: { marginBottom: 12, alignSelf: 'flex-start' },
   statsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   statsText: { fontSize: 15, color: '#4e7397', marginLeft: 8, alignSelf: 'flex-start' },
+
   quickList: { marginBottom: 12, alignSelf: 'flex-start' },
   quickRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   quickText: { fontSize: 15, color: '#4e7397', marginLeft: 8, alignSelf: 'flex-start' },
+
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
   },
+
   modalContent: {
     width: '96%',
     maxWidth: 500,
@@ -770,13 +866,67 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 20,
     alignSelf: 'center',
+    overflow: 'visible',
   },
+
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 12,
     color: '#222',
   },
+
+  modalText: {
+    color: '#444',
+  },
+
+  // Dark mode variations
+  modalContentDark: {
+    backgroundColor: '#121212',
+  },
+  modalTitleDark: {
+    color: '#fff',
+  },
+  modalTextDark: {
+    color: '#ddd',
+  },
+  inputDark: {
+    backgroundColor: '#222',
+    color: '#fff',
+    borderColor: '#333',
+  },
+  buttonDark: {
+    backgroundColor: '#1f6feb',
+  },
+  mediaButtonDark: {
+    backgroundColor: '#1f6feb',
+  },
+  uploadButtonDark: {
+    backgroundColor: '#1e4e8a',
+  },
+  overlayMenuDark: {
+    backgroundColor: '#1b1b1b',
+    borderColor: '#2b2b2b',
+  },
+  overlayMenuTextDark: {
+    color: '#fff',
+  },
+  overlayButtonDark: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  confirmModalContentDark: {
+    backgroundColor: '#111',
+  },
+  confirmTextDark: {
+    color: '#ddd',
+  },
+  confirmTitleDark: {
+    color: '#fff',
+  },
+  confirmButtonTextDark: {
+    color: '#fff',
+  },
+
   input: {
     height: 100,
     borderColor: '#ddd',
@@ -787,12 +937,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     color: '#222',
   },
+
   charCount: {
     fontSize: 12,
     color: '#888',
     marginBottom: 12,
     textAlign: 'right',
   },
+
   previewContainer: {
     width: '100%',
     aspectRatio: 16 / 9,
@@ -800,12 +952,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 12,
   },
+
   previewMedia: {
     width: '100%',
     height: 400,
     borderRadius: 8,
     marginBottom: 12,
+    backgroundColor: '#000',
   },
+
   clearPreviewButton: {
     position: 'absolute',
     top: 8,
@@ -814,11 +969,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 6,
   },
+
   mediaRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginBottom: 12,
   },
+
   mediaButton: {
     flex: 1,
     aspectRatio: 1,
@@ -829,6 +986,7 @@ const styles = StyleSheet.create({
     padding: 10,
     marginHorizontal: 4,
   },
+
   button: {
     backgroundColor: '#007AFF',
     borderRadius: 8,
@@ -838,17 +996,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
   },
+
+  buttonDark: {
+    backgroundColor: '#1f6feb',
+  },
+
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
   },
+
   centeredView: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
   },
+
   fullMediaModalContent: {
     width: '96%',
     maxWidth: 500,
@@ -856,63 +1021,196 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderRadius: 16,
     overflow: 'hidden',
-    alignSelf: 'center',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
+
   fullMedia: {
     width: '100%',
     height: '100%',
     position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
+
   overlayButtons: {
     position: 'absolute',
     top: 16,
     right: 16,
-    flexDirection: 'column',
-    alignItems: 'center',
-    zIndex: 2,
+    zIndex: 20,
+    alignItems: 'flex-end',
   },
+
   overlayButton: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     borderRadius: 24,
     padding: 8,
-    marginBottom: 12,
+  },
+
+  overlayMenu: {
+    position: 'absolute',
+    top: 40,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    minWidth: 120,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    zIndex: 30,
+  },
+
+  overlayMenuDark: {
+    backgroundColor: '#1b1b1b',
+    borderColor: '#2b2b2b',
+  },
+
+  overlayMenuItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     alignItems: 'center',
+    flexDirection: 'row',
+    minWidth: 120,
   },
-  overlayButtonText: {
+
+  overlayMenuText: {
+    marginLeft: 8,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+
+  overlayMenuTextDark: {
     color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
-    marginTop: 2,
   },
-  overlayDescription: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 16,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
+
+  // Estilos para modal de confirmación
+  confirmModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 20,
   },
-  descriptionText: {
-    color: '#fff',
-    fontSize: 15,
+
+  confirmModalContent: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+  },
+
+  confirmModalContentDark: {
+    backgroundColor: '#111',
+  },
+
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     marginBottom: 8,
+    color: '#222',
   },
-  commentsModal: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.92)',
-    padding: 16,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    zIndex: 10,
+
+  confirmTitleDark: {
+    color: '#fff',
+  },
+
+  confirmText: {
+    fontSize: 14,
+    color: '#444',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+
+  confirmTextDark: {
+    color: '#ddd',
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+    marginHorizontal: 6,
+  },
+
+  confirmCancelButton: {
+    backgroundColor: '#EEE',
+  },
+
+  confirmDeleteButton: {
+    backgroundColor: '#FF3B30',
+  },
+
+  confirmButtonText: {
+    color: '#111',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  confirmButtonTextDark: {
+    color: '#fff',
+  },
+
+  confirmCancelButtonDark: {
+    backgroundColor: '#333',
+  },
+
+  // Textos de likes / comentarios
+  likesText: {
+    color: '#ffffffff',
+    fontSize: 14,
+  },
+  likesTextDark: {
+    color: '#ddd',
+  },
+
+  // Placeholder de comentarios (sin comentarios)
+  placeholderText: {
+    color: '#888',
+    fontSize: 13,
+  },
+  placeholderTextDark: {
+    color: '#aaa',
+  },
+
+  // Item de comentario
+  commentItem: {
+    marginBottom: 6,
+  },
+  commentItemDark: {
+    // estilos vacíos intencionales: los Text internos manejan color
+  },
+
+  commentAuthor: {
+    fontWeight: '700',
+    color: '#ffffffff',
+  },
+  commentAuthorDark: {
+    color: '#fff',
+  },
+
+  commentText: {
+    color: '#ffffffff',
+  },
+  commentTextDark: {
+    color: '#e6e6e6',
   },
 });
-
 

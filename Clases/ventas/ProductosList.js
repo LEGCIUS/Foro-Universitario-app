@@ -1,53 +1,65 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal } from 'react-native';import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useTheme } from '../ThemeContext'; // added
 
 function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading }) {
+  const { darkMode } = useTheme(); // safe theme usage
+
+  // Guardar telefono seguro (evita .replace sobre undefined)
+  const safePhone = (item?.telefono || '').toString().replace(/[^\d]/g, '');
+  const whatsappUrl = safePhone ? `https://wa.me/${safePhone}?text=${encodeURIComponent(item?.mensaje_whatsapp || '¡Hola! Estoy interesado en tu producto.')}` : null;
+
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, darkMode && styles.cardDark]}
       activeOpacity={0.95}
       onPress={() => onVerDetalle(item)}
     >
-      <View style={styles.imageContainer}>
-        {Array.isArray(item.foto_url) && item.foto_url.length > 0 ? (
+      <View style={[styles.imageContainer, darkMode && styles.imageContainerDark]}>
+        {Array.isArray(item?.foto_url) && item.foto_url.length > 0 ? (
           <Image source={{ uri: item.foto_url[0] }} style={styles.image} />
         ) : (
-          <View style={styles.imagePlaceholder}>
-            <Text style={{ color: '#bbb', fontSize: 32 }}>🖼️</Text>
+          <View style={[styles.imagePlaceholder, darkMode && styles.imagePlaceholderDark]}>
+            <Text style={{ color: darkMode ? '#666' : '#bbb', fontSize: 32 }}>🖼️</Text>
           </View>
         )}
       </View>
+
       <View style={styles.info}>
-        <Text style={styles.nombre}>{item.nombre}</Text>
-        <Text style={styles.precio}>₡{item.precio}</Text>
-        <Text style={styles.descripcion}>{item.descripcion}</Text>
-        <Text style={styles.vendedor}>Vendedor: <Text style={{ color: '#0e141b', fontWeight: 'bold' }}>{item.nombre_vendedor}</Text></Text>
-        {item.hora_inicio_venta && (
-          <Text style={styles.horaVenta}>
-            <Text style={{ color: '#4e7397', fontWeight: 'bold' }}>Inicio de venta:</Text> {
-              (() => {
-                const [h, m] = item.hora_inicio_venta.split(':');
-                const d = new Date();
-                d.setHours(parseInt(h), parseInt(m), 0, 0);
-                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              })()
-            }
+        <Text style={[styles.nombre, darkMode && styles.nombreDark]}>{item?.nombre}</Text>
+        <Text style={[styles.precio, darkMode && styles.precioDark]}>₡{item?.precio}</Text>
+        <Text style={[styles.descripcion, darkMode && styles.descripcionDark]} numberOfLines={2}>{item?.descripcion}</Text>
+        <Text style={[styles.vendedor, darkMode && styles.vendedorDark]}>
+          <Text style={{ color: darkMode ? '#fff' : '#4e7397', fontWeight: '700' }}>Vendedor: </Text>
+          <Text style={[{ fontWeight: '700' }, darkMode && { color: '#fff' }]}>{item?.nombre_vendedor}</Text>
+        </Text>
+
+        {item?.hora_inicio_venta && (
+          <Text style={[styles.horaVenta, darkMode && styles.horaVentaDark]}>
+            <Text style={{ color: '#4e7397', fontWeight: '700' }}>Inicio de venta: </Text>
+            {(() => {
+              const [h, m] = String(item.hora_inicio_venta).split(':');
+              const d = new Date();
+              d.setHours(parseInt(h || '0', 10), parseInt(m || '0', 10), 0, 0);
+              return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            })()}
           </Text>
         )}
+
         <TouchableOpacity
           onPress={() => {
-            const phone = item.telefono.replace(/[^\d]/g, '');
-            const message = encodeURIComponent(item.mensaje_whatsapp || '¡Hola! Estoy interesado en tu producto.');
-            const url = `https://wa.me/${phone}?text=${message}`;
-            Linking.openURL(url);
+            if (!whatsappUrl) return Alert.alert('Teléfono no disponible', 'El vendedor no proporcionó un número válido.');
+            Linking.openURL(whatsappUrl).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
           }}
-          style={styles.whatsappBtn}
           activeOpacity={0.7}
         >
-          <Text style={styles.telefonoLink}> WhatsApp: {item.telefono}</Text>
+          <Text style={[styles.telefonoLink, darkMode && styles.telefonoLinkDark]}>WhatsApp: {item?.telefono || '—'}</Text>
         </TouchableOpacity>
-        {userCarnet === item.usuario_carnet && (
+
+        {userCarnet === item?.usuario_carnet && (
           <View style={styles.ownerActions}>
             <TouchableOpacity
               style={styles.editButton}
@@ -66,6 +78,7 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
             >
               <Text style={styles.editButtonText}>✏️ Editar</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.deleteButton}
               onPress={() => {
@@ -102,6 +115,7 @@ export default function ProductosList(props) {
   const [modalVisible, setModalVisible] = useState(false);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   const [imagenIndex, setImagenIndex] = useState(0);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem('carnet').then(carnet => {
@@ -158,20 +172,42 @@ export default function ProductosList(props) {
   const categorias = ['todos', 'comida', 'servicios', 'articulos', 'decoracion'];
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f4f6fb' }}>
-      <Text style={styles.title}>Productos</Text>
-      <View style={styles.categoriasRow}>
-        {categorias.map(cat => (
-          <TouchableOpacity
-            key={cat}
-            style={[styles.categoriaBtn, categoriaSeleccionada === cat && styles.categoriaBtnSelected, { elevation: categoriaSeleccionada === cat ? 4 : 1 }]}
-            activeOpacity={0.8}
-            onPress={() => setCategoriaSeleccionada(cat)}
-          >
-            <Text style={categoriaSeleccionada === cat ? styles.categoriaBtnTextSelected : styles.categoriaBtnText}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
-          </TouchableOpacity>
-        ))}
+    <View style={[{ flex: 1, backgroundColor: '#f4f6fb' }, styles.safeContainer]}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Productos</Text>
+        <TouchableOpacity 
+          style={styles.menuButton}
+          onPress={() => setMenuVisible(!menuVisible)}
+        >
+          <MaterialIcons name="menu" size={28} color="#007AFF" />
+        </TouchableOpacity>
+        
+        {menuVisible && (
+          <View style={styles.dropdown}>
+            {categorias.map(cat => (
+              <TouchableOpacity
+                key={cat}
+                style={[
+                  styles.dropdownItem,
+                  categoriaSeleccionada === cat && styles.dropdownItemSelected
+                ]}
+                onPress={() => {
+                  setCategoriaSeleccionada(cat);
+                  setMenuVisible(false);
+                }}
+              >
+                <Text style={[
+                  styles.dropdownText,
+                  categoriaSeleccionada === cat && styles.dropdownTextSelected
+                ]}>
+                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
+
       {loading ? (
         <ActivityIndicator style={{ marginTop: 32 }} size="large" color="#007AFF" />
       ) : (
@@ -262,7 +298,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  title: { fontSize: 20, fontWeight: 'bold', marginBottom: 10, textAlign: 'center' },
+  safeContainer: {
+    paddingTop: 45,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  title: { 
+    fontSize: 20, 
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  menuButton: {
+    position: 'absolute',
+    right: 16,
+    padding: 8,
+  },
+  dropdown: {
+    position: 'absolute',
+    top: 45,
+    right: 16,
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 4,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    zIndex: 1000,
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 4,
+  },
+  dropdownItemSelected: {
+    backgroundColor: '#007AFF20',
+  },
+  dropdownText: {
+    color: '#333',
+    fontSize: 16,
+  },
+  dropdownTextSelected: {
+    color: '#007AFF',
+    fontWeight: 'bold',
+  },
   list: { padding: 16 },
   card: {
     backgroundColor: '#ffffff',
@@ -279,6 +365,9 @@ const styles = StyleSheet.create({
     minHeight: 120,
     padding: 8,
   },
+  cardDark: {
+    backgroundColor: '#1e1e2e',
+  },
   imageContainer: {
     width: 120,
     height: 120,
@@ -289,6 +378,9 @@ const styles = StyleSheet.create({
   marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  imageContainerDark: {
+    backgroundColor: '#2c2c3e',
   },
   image: {
     width: '100%',
@@ -304,6 +396,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  imagePlaceholderDark: {
+    backgroundColor: '#3a3a4e',
+  },
   info: {
     flex: 1,
     paddingVertical: 12,
@@ -312,11 +407,26 @@ const styles = StyleSheet.create({
     minHeight: 110,
   },
   nombre: { fontSize: 19, fontWeight: '700', color: '#0e141b', marginBottom: 2 },
+  nombreDark: {
+    color: '#ffffff',
+  },
   precio: { fontSize: 17, color: '#0b6cf6', fontWeight: '700', marginBottom: 4 },
+  precioDark: {
+    color: '#4da3ff',
+  },
   descripcion: { fontSize: 14, color: '#607b90', marginBottom: 6 },
+  descripcionDark: {
+    color: '#b0b0c3',
+  },
   vendedor: { fontSize: 14, color: '#4e7397', marginTop: 2 },
+  vendedorDark: {
+    color: '#a0a0c3',
+  },
   telefono: { fontSize: 14, color: '#00C6FB', marginTop: 2 },
   telefonoLink: { fontSize: 15, color: '#25D366', marginTop: 2, fontWeight: 'bold' },
+  telefonoLinkDark: {
+    color: '#75e6b2',
+  },
   whatsappBtn: { marginTop: 2, alignSelf: 'flex-start' },
   fab: {
     position: 'absolute',

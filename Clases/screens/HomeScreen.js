@@ -30,11 +30,7 @@ global.Buffer = global.Buffer || Buffer;
 export default function HomeScreen({ onLogout, navigation }) {
   const isFocused = useIsFocused();
 
-
-  const [posts, setPosts] = useState([
-    { id: '1', text: '¡Bienvenido al foro universitario!' },
-    { id: '2', text: 'Recuerda revisar las reglas antes de publicar.' },
-  ]);
+  const [posts, setPosts] = useState([]);
   const [newPost, setNewPost] = useState('');
   const [uploading, setUploading] = useState(false);
   const [previewMedia, setPreviewMedia] = useState(null);
