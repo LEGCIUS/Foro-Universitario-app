@@ -5,18 +5,29 @@ import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../ThemeContext'; // added
 
-function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading }) {
+function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu }) {
   const { darkMode } = useTheme(); // safe theme usage
 
   // Guardar telefono seguro (evita .replace sobre undefined)
   const safePhone = (item?.telefono || '').toString().replace(/[^\d]/g, '');
   const whatsappUrl = safePhone ? `https://wa.me/${safePhone}?text=${encodeURIComponent(item?.mensaje_whatsapp || '¡Hola! Estoy interesado en tu producto.')}` : null;
 
+  // Formatear hora para mostrarla y aplicar color según tema
+  const horaMostrar = item?.hora_inicio_venta ? (() => {
+    const [h, m] = String(item.hora_inicio_venta).split(':');
+    const d = new Date();
+    d.setHours(parseInt(h || '0', 10), parseInt(m || '0', 10), 0, 0);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  })() : null;
+
   return (
     <TouchableOpacity
       style={[styles.card, darkMode && styles.cardDark]}
       activeOpacity={0.95}
-      onPress={() => onVerDetalle(item)}
+      onPress={() => {
+        if (closeMenu) closeMenu();
+        onVerDetalle(item);
+      }}
     >
       <View style={[styles.imageContainer, darkMode && styles.imageContainerDark]}>
         {Array.isArray(item?.foto_url) && item.foto_url.length > 0 ? (
@@ -38,14 +49,9 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
         </Text>
 
         {item?.hora_inicio_venta && (
-          <Text style={[styles.horaVenta, darkMode && styles.horaVentaDark]}>
+          <Text style={[styles.horaVenta]}>
             <Text style={{ color: '#4e7397', fontWeight: '700' }}>Inicio de venta: </Text>
-            {(() => {
-              const [h, m] = String(item.hora_inicio_venta).split(':');
-              const d = new Date();
-              d.setHours(parseInt(h || '0', 10), parseInt(m || '0', 10), 0, 0);
-              return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            })()}
+            <Text style={{ color: darkMode ? '#fff' : '#0e141b', fontWeight: '700' }}>{horaMostrar}</Text>
           </Text>
         )}
 
@@ -108,6 +114,7 @@ const MemoProductoCard = React.memo(ProductoCard);
 
 export default function ProductosList(props) {
   const { onVerDetalle, navigation } = props;
+  const { darkMode } = useTheme(); // <-- usar tema aquí también
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userCarnet, setUserCarnet] = useState('');
@@ -133,6 +140,15 @@ export default function ProductosList(props) {
     fetchProductos();
     const unsubscribe = navigation.addListener('focus', fetchProductos);
     return unsubscribe;
+  }, [navigation]);
+
+  useEffect(() => {
+    const unsubscribeBlur = navigation.addListener('blur', () => {
+      // Cerrar menú desplegable y modal si el usuario sale de esta pantalla
+      setMenuVisible(false);
+      setModalVisible(false);
+    });
+    return unsubscribeBlur;
   }, [navigation]);
 
   const handleProductoPublicado = async () => {
@@ -172,9 +188,9 @@ export default function ProductosList(props) {
   const categorias = ['todos', 'comida', 'servicios', 'articulos', 'decoracion'];
 
   return (
-    <View style={[{ flex: 1, backgroundColor: '#f4f6fb' }, styles.safeContainer]}>
+    <View style={[{ flex: 1, backgroundColor: darkMode ? '#232526' : '#e0eafc' }, styles.safeContainer]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Productos</Text>
+        <Text style={[styles.title, darkMode && styles.titleDark]}>Productos</Text>
         <TouchableOpacity 
           style={styles.menuButton}
           onPress={() => setMenuVisible(!menuVisible)}
@@ -183,28 +199,36 @@ export default function ProductosList(props) {
         </TouchableOpacity>
         
         {menuVisible && (
-          <View style={styles.dropdown}>
-            {categorias.map(cat => (
-              <TouchableOpacity
-                key={cat}
-                style={[
-                  styles.dropdownItem,
-                  categoriaSeleccionada === cat && styles.dropdownItemSelected
-                ]}
-                onPress={() => {
-                  setCategoriaSeleccionada(cat);
-                  setMenuVisible(false);
-                }}
-              >
-                <Text style={[
-                  styles.dropdownText,
-                  categoriaSeleccionada === cat && styles.dropdownTextSelected
-                ]}>
-                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <>
+            <TouchableOpacity
+              style={styles.menuOverlay}
+              activeOpacity={1}
+              onPress={() => setMenuVisible(false)}
+            />
+            <View style={[styles.dropdown, darkMode && styles.dropdownDark]}>
+              {categorias.map(cat => (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.dropdownItem,
+                    categoriaSeleccionada === cat && styles.dropdownItemSelected
+                  ]}
+                  onPress={() => {
+                    setCategoriaSeleccionada(cat);
+                    setMenuVisible(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.dropdownText,
+                    darkMode && styles.dropdownTextDark,
+                    categoriaSeleccionada === cat && styles.dropdownTextSelected
+                  ]}>
+                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
         )}
       </View>
 
@@ -223,6 +247,7 @@ export default function ProductosList(props) {
               userCarnet={userCarnet}
               handleProductoPublicado={handleProductoPublicado}
               setLoading={setLoading}
+              closeMenu={() => setMenuVisible(false)}
             />
           )}
           ListEmptyComponent={() => (
@@ -244,7 +269,7 @@ export default function ProductosList(props) {
         onRequestClose={handleCerrarModal}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, darkMode && styles.modalContentDark]}>
             {productoSeleccionado && (
               <>
                 <View style={{ alignItems: 'center', marginBottom: 12 }}>
@@ -313,6 +338,10 @@ const styles = StyleSheet.create({
     fontSize: 20, 
     fontWeight: 'bold',
     textAlign: 'center',
+    color: '#0e141b',
+  },
+  titleDark: {
+    color: '#fff',
   },
   menuButton: {
     position: 'absolute',
@@ -333,6 +362,20 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     zIndex: 1000,
   },
+  // overlay que captura toques fuera del dropdown y lo cierra
+  menuOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    zIndex: 900,
+  },
+  dropdownDark: {
+    backgroundColor: '#121214',
+    borderColor: '#2b2b2b',
+  },
   dropdownItem: {
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -345,13 +388,18 @@ const styles = StyleSheet.create({
     color: '#333',
     fontSize: 16,
   },
+  dropdownTextDark: {
+    color: '#fff',
+  },
   dropdownTextSelected: {
     color: '#007AFF',
     fontWeight: 'bold',
   },
   list: { padding: 16 },
+
+  // Fichas ahora usan tonos parecidos al fondo (claro: azul pálido, oscuro: tono del gradiente)
   card: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#eef6ff', // tono claro similar al gradient de perfil
     borderRadius: 16,
     marginBottom: 22,
     elevation: 6,
@@ -359,28 +407,31 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
     alignItems: 'center',
     minHeight: 120,
     padding: 8,
   },
   cardDark: {
-    backgroundColor: '#1e1e2e',
+    backgroundColor: '#2b2d31', // tono oscuro cercano al gradiente (#232526 - #414345)
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)',
   },
+
   imageContainer: {
     width: 120,
     height: 120,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#f6f8fb',
-  marginLeft: 8,
-  marginRight: 12,
+    backgroundColor: '#eef6ff', // combinar con la ficha clara
+    marginLeft: 8,
+    marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   imageContainerDark: {
-    backgroundColor: '#2c2c3e',
+    backgroundColor: '#2b2d31', // mismo matiz que la ficha oscura
   },
   image: {
     width: '100%',
@@ -392,12 +443,12 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: 16,
-    backgroundColor: '#e7edf3',
+    backgroundColor: '#f0f7ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
   imagePlaceholderDark: {
-    backgroundColor: '#3a3a4e',
+    backgroundColor: '#33343f',
   },
   info: {
     flex: 1,
@@ -472,12 +523,16 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     elevation: 8,
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 8,
-    textAlign: 'center',
+  modalContentDark: {
+    backgroundColor: '#232526', // más cercano al fondo del perfil
+  },
+  horaVenta: {
+    fontSize: 14,
+    color: '#0e141b',
+    marginTop: 2,
+  },
+  horaVentaDark: {
+    color: '#fff',
   },
   closeButton: {
     backgroundColor: '#007AFF',
@@ -490,11 +545,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  emptyText: { fontSize: 16, color: '#888' },
-  categoriasRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 12, flexWrap: 'wrap' },
-  categoriaBtn: { backgroundColor: '#eee', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginHorizontal: 4, marginBottom: 4 },
+  categoriaBtnTextSelected: { color: '#fff', fontWeight: 'bold' },
   categoriaBtnSelected: { backgroundColor: '#007AFF' },
   categoriaBtnText: { color: '#333', fontWeight: 'bold' },
-  categoriaBtnTextSelected: { color: '#fff', fontWeight: 'bold' },
+  categoriaBtn: { backgroundColor: '#eee', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginHorizontal: 4, marginBottom: 4 },
+  categoriasRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 12, flexWrap: 'wrap' },
+  emptyText: { fontSize: 16, color: '#888' },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
 });

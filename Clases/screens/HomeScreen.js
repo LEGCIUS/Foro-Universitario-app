@@ -13,6 +13,9 @@ import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 const { width } = Dimensions.get('window');
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// Añadir imports para tema y gradiente
+import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../ThemeContext';
 
 // Esta mierda ya la devolvi a 20 antes de que se joda todo
 // Si vuelve a joderse, gogo.
@@ -24,11 +27,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
 
-
 global.Buffer = global.Buffer || Buffer;
 
 export default function HomeScreen({ onLogout, navigation }) {
   const isFocused = useIsFocused();
+
+  // obtener modo oscuro
+  const { darkMode } = useTheme();
 
   const [posts, setPosts] = useState([]);
   const [newPost, setNewPost] = useState('');
@@ -315,7 +320,9 @@ export default function HomeScreen({ onLogout, navigation }) {
 
   // Componente funcional para cada publicación del feed (UI estilo Instagram)
   const FeedItem = ({ item, isVisible, isScreenFocused }) => {
-    const hideControlsTimeout = useRef(null);
+      // leer tema dentro del item para aplicar colores a su UI
+      const { darkMode } = useTheme();
+       const hideControlsTimeout = useRef(null);
     const [liked, setLiked] = useState(false);
     const [likeCount, setLikeCount] = useState(item.likes || 0);
     const [saved, setSaved] = useState(false);
@@ -461,18 +468,18 @@ export default function HomeScreen({ onLogout, navigation }) {
     }, []);
 
     return (
-      <View style={styles.feedCard}>
+      <View style={[styles.feedCard, darkMode && styles.feedCardDark]}>
         {/* Header */}
         <View style={styles.postHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.postAvatar} />
             <View>
-              <Text style={styles.postUser}>{item.userName || 'Usuario'}</Text>
-              <Text style={styles.postTime}>{formatRelativeTime(item.fecha)}</Text>
+              <Text style={[styles.postUser, darkMode && styles.postUserDark]}>{item.userName || 'Usuario'}</Text>
+              <Text style={[styles.postTime, darkMode && styles.postTimeDark]}>{formatRelativeTime(item.fecha)}</Text>
             </View>
           </View>
           <TouchableOpacity>
-            <MaterialIcons name="more-vert" size={22} color="#444" />
+            <MaterialIcons name="more-vert" size={22} color={darkMode ? '#ddd' : '#444'} />
           </TouchableOpacity>
         </View>
 
@@ -492,7 +499,7 @@ export default function HomeScreen({ onLogout, navigation }) {
 
         {/* Media (solo si hay imagen o video) */}
         {item.mediaUrl && (item.mediaType === 'video' || item.mediaType === 'image') && (
-          <View style={styles.mediaBox}>
+          <View style={[styles.mediaBox, darkMode && styles.mediaBoxDark]}>
             {item.mediaType === 'video' ? (
               <View style={{ width: '100%', height: '100%' }}>
                 <Video
@@ -532,44 +539,46 @@ export default function HomeScreen({ onLogout, navigation }) {
                 {/* mute */}
                 <TouchableOpacity
                   onPress={() => setIsMuted((m) => !m)}
-                  style={{ position: 'absolute', right: 12, bottom: 28, backgroundColor: '#0008', padding: 8, borderRadius: 20 }}
+                  style={{ position: 'absolute', right: 12, bottom: 28, backgroundColor: darkMode ? '#0008' : '#0008', padding: 8, borderRadius: 20 }}
                   activeOpacity={0.8}
                 >
                   <MaterialIcons name={isMuted ? 'volume-off' : 'volume-up'} size={22} color="#fff" />
                 </TouchableOpacity>
-              </View>
-            ) : (
-              <Image source={{ uri: item.mediaUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-            )}
-          </View>
-        )}
+               </View>
+             ) : (
+               <Image source={{ uri: item.mediaUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+             )}
+           </View>
+         )}
 
         {/* Acciones */}
         <View style={styles.actionsRow}>
           <View style={styles.actionsLeft}>
             <TouchableOpacity onPress={handleLike} activeOpacity={0.7} style={styles.actionBtnRow}>
-              <FontAwesome name={liked ? 'heart' : 'heart-o'} size={22} color={liked ? '#e74c3c' : '#222'} />
-              <Text style={[styles.actionText, liked && { color: '#e74c3c' }]}>Me gusta</Text>
+              <FontAwesome name={liked ? 'heart' : 'heart-o'} size={22} color={liked ? '#e74c3c' : (darkMode ? '#eee' : '#222')} />
+              <Text style={[styles.actionText, darkMode && styles.actionTextDark, liked && { color: '#e74c3c' }]}>Me gusta</Text>
             </TouchableOpacity>
+
             <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow}>
-              <FontAwesome name="comment-o" size={20} color="#222" />
-              <Text style={styles.actionText}>Comentar</Text>
+              <FontAwesome name="comment-o" size={20} color={darkMode ? '#fff' : '#222'} />
+              <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Comentar</Text>
             </TouchableOpacity>
+
             <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow}>
-              <MaterialIcons name="share" size={22} color="#222" />
-              <Text style={styles.actionText}>Compartir</Text>
+              <MaterialIcons name="share" size={22} color={darkMode ? '#fff' : '#222'} />
+              <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Compartir</Text>
             </TouchableOpacity>
           </View>
           <TouchableOpacity onPress={() => setSaved((s) => !s)}>
-            <MaterialIcons name={saved ? 'bookmark' : 'bookmark-border'} size={26} color="#222" />
+            <MaterialIcons name={saved ? 'bookmark' : 'bookmark-border'} size={26} color={darkMode ? '#eee' : '#222'} />
           </TouchableOpacity>
         </View>
         {/* Likes */}
-        <Text style={styles.likesText}>{formatCount(Math.max(0, likeCount))} Me gusta</Text>
+        <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{formatCount(Math.max(0, likeCount))} Me gusta</Text>
         {/* Caption bajo media (si hay media) con ver más */}
         {!isTextOnly && !!captionText && (
           <>
-            <Text style={styles.captionText} numberOfLines={captionExpanded ? 0 : 2}>
+            <Text style={[styles.captionText, darkMode && styles.captionTextDark]} numberOfLines={captionExpanded ? 0 : 2}>
               <Text style={styles.captionUser}>{(item.userName || 'usuario')}</Text> {renderRichText(captionText)}
             </Text>
             {showMore && (
@@ -586,11 +595,10 @@ export default function HomeScreen({ onLogout, navigation }) {
           </TouchableOpacity>
         )}
         {/* Tiempo */}
-        <Text style={styles.postTimeFooter}>{formatRelativeTime(item.fecha)}</Text>
+        <Text style={[styles.postTimeFooter, darkMode && styles.postTimeFooterDark]}>{formatRelativeTime(item.fecha)}</Text>
       </View>
-    );
-  };
-
+     );
+   };
   // Memoizar FeedItem para reducir re-renders si props no cambian
   const MemoFeedItem = useMemo(() => React.memo(FeedItem, (prev, next) => {
     const a = prev.item, b = next.item;
@@ -640,23 +648,28 @@ export default function HomeScreen({ onLogout, navigation }) {
     <MemoFeedItem item={item} isVisible={visibleIds.has(item.id)} isScreenFocused={isFocused} />
   ), [visibleIds, isFocused, MemoFeedItem]);
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <View style={[styles.header, { backgroundColor: '#fff' }]} />
-      {/* Lista de publicaciones */}
-      <FlatList
-        data={publicacionesValidas}
-        renderItem={renderFeedItem}
-        keyExtractor={item => (item.id ? item.id.toString() : Math.random().toString())}
-        contentContainerStyle={[styles.feed, { paddingBottom: 80 }]}
-        showsVerticalScrollIndicator={false}
-        removeClippedSubviews={false}
-        initialNumToRender={4}
-        maxToRenderPerBatch={8}
-        windowSize={7}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfigRef.current}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-      />
+    <LinearGradient
+      colors={darkMode ? ['#232526', '#414345'] : ['#ffffff', '#f7fbff']}
+      style={{ flex: 1 }}
+    >
+      <View style={[styles.header, { backgroundColor: darkMode ? 'transparent' : '#fff' }]} />
+       {/* Lista de publicaciones */}
+       <FlatList
+          data={publicacionesValidas}
+          renderItem={renderFeedItem}
+          keyExtractor={item => (item.id ? item.id.toString() : Math.random().toString())}
+          contentContainerStyle={[styles.feed, { paddingBottom: 80 }]}
+          showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
+          initialNumToRender={4}
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfigRef.current}
+          ItemSeparatorComponent={() => (
+            <View style={[styles.separator, darkMode && { backgroundColor: '#2b2b2b' }]} />
+          )}
+        />
       {/* Botón flotante para publicar */}
       <TouchableOpacity style={[styles.fab, { backgroundColor: '#007AFF', shadowColor: '#007AFF' }]} onPress={() => setShowPublishModal(true)} activeOpacity={0.8}>
         <FontAwesome name="plus" size={28} color="#fff" />
@@ -727,7 +740,7 @@ export default function HomeScreen({ onLogout, navigation }) {
           />
         </View>
       </Modal>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -777,7 +790,7 @@ const styles = StyleSheet.create({
   charCount: {
     alignSelf: 'flex-end',
     fontSize: 12,
-    color: '#888',
+    color: '#464646ff',
     marginTop: 2,
     marginBottom: 4,
   },
@@ -811,7 +824,7 @@ const styles = StyleSheet.create({
   },
   // Mejora visual en la lista de publicaciones con video
   postCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1eff', // gris más oscuro para las publicaciones
     borderRadius: 18,
     marginBottom: 18,
     padding: 16,
@@ -822,7 +835,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   feedCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#171717ff', // aplicar gris más oscuro también a feedCard
     borderRadius: 0,
     marginBottom: 24,
     paddingBottom: 8,
@@ -848,15 +861,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  postUserDark: {
+    color: '#fff',
+  },
   postTime: {
-    color: '#888',
+    color: '#000000ff',
     fontSize: 12,
     marginTop: 2,
+  },
+  postTimeDark: {
+    color: '#bbb',
   },
   mediaBox: {
     width: '100%',
     aspectRatio: 1,
     backgroundColor: '#f0f0f0',
+  },
+  mediaBoxDark: {
+    backgroundColor: '#0f1720',
   },
   actionsRow: {
     flexDirection: 'row',
@@ -879,6 +901,9 @@ const styles = StyleSheet.create({
     color: '#222',
     fontSize: 14,
   },
+  actionTextDark: {
+    color: '#ffffff',
+  },
   likesText: {
     color: '#111',
     fontWeight: '600',
@@ -886,11 +911,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginTop: 6,
   },
+  likesTextDark: {
+    color: '#ddd',
+  },
   captionText: {
     color: '#111',
     fontSize: 14,
     paddingHorizontal: 12,
     marginTop: 4,
+  },
+  captionTextDark: {
+    color: '#e6e6e6',
   },
   captionUser: {
     fontWeight: '600',
@@ -901,28 +932,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginTop: 6,
   },
+  viewCommentsTextDark: {
+    color: '#bbb',
+  },
   postTimeFooter: {
     color: '#999',
     fontSize: 12,
     paddingHorizontal: 12,
     marginTop: 6,
   },
+  postTimeFooterDark: {
+    color: '#9aa0b0',
+  },
   textOnlyCard: {
     marginHorizontal: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#eaeaea',
-    backgroundColor: '#f8f9fb',
+    borderColor: '#000000ff',
+    backgroundColor: '#292929ff', // igual tono gris más oscuro
     borderRadius: 12,
     padding: 12,
   },
-  textOnlyText: {
-    color: '#0f172a',
-    fontSize: 15,
-    lineHeight: 21,
-  },
   showMoreText: {
-    color: '#6b7280',
+    color: '#090909ff',
     fontSize: 13,
     marginTop: 6,
     paddingHorizontal: 12,
@@ -1062,8 +1094,11 @@ const styles = StyleSheet.create({
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.10,
     shadowRadius: 8,
+  },
+  modalContentDark: {
+    backgroundColor: '#121212',
   },
   modalTitle: {
     fontSize: 22,
@@ -1091,7 +1126,7 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 1,
-    backgroundColor: '#eaeaea',
+    backgroundColor: darkMode ? '#2b2b2b' : '#eaeaea',
     width: '100%',
   },
   // Crear Publicación - estilos nuevos
@@ -1111,6 +1146,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
     color: '#111',
+  },
+  createHeaderTitleDark: {
+    color: '#fff',
   },
   createPublishAction: {
     color: '#007AFF',
@@ -1167,13 +1205,15 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 16,
     fontWeight: '600',
-  },
-  descriptionInput: {
     marginHorizontal: 20,
     marginTop: 16,
     minHeight: 120,
     color: '#0f172a',
     fontSize: 16,
   },
+  descriptionInputDark: {
+    color: '#fff',
+  },
 });
-//aaaaaaaaaaaaaaaaaaaa
+
+
