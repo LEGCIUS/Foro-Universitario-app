@@ -468,7 +468,7 @@ export default function HomeScreen({ onLogout, navigation }) {
     }, []);
 
     return (
-      <View style={[styles.feedCard, darkMode && styles.feedCardDark]}>
+      <View style={[styles.feedCard, darkMode && { backgroundColor: '#171717' }]}>
         {/* Header */}
         <View style={styles.postHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -491,7 +491,12 @@ export default function HomeScreen({ onLogout, navigation }) {
             </Text>
             {showMore && (
               <TouchableOpacity onPress={() => setCaptionExpanded((e) => !e)} activeOpacity={0.8}>
-                <Text style={styles.showMoreText}>{captionExpanded ? 'Ver menos' : 'Ver más'}</Text>
+                <Text style={[
+                  styles.showMoreText,
+                  darkMode && { color: '#9aa0b0' }
+                ]}>
+                  {captionExpanded ? 'Ver menos' : 'Ver más'}
+                </Text>
               </TouchableOpacity>
             )}
           </>
@@ -583,7 +588,12 @@ export default function HomeScreen({ onLogout, navigation }) {
             </Text>
             {showMore && (
               <TouchableOpacity activeOpacity={0.8} onPress={() => setCaptionExpanded((e) => !e)}>
-                <Text style={styles.showMoreText}>{captionExpanded ? 'Ver menos' : 'Ver más'}</Text>
+                <Text style={[
+                  styles.showMoreText,
+                  darkMode && { color: '#9aa0b0' }
+                ]}>
+                  {captionExpanded ? 'Ver menos' : 'Ver más'}
+                </Text>
               </TouchableOpacity>
             )}
           </>
@@ -653,23 +663,22 @@ export default function HomeScreen({ onLogout, navigation }) {
       style={{ flex: 1 }}
     >
       <View style={[styles.header, { backgroundColor: darkMode ? 'transparent' : '#fff' }]} />
-       {/* Lista de publicaciones */}
-       <FlatList
-          data={publicacionesValidas}
-          renderItem={renderFeedItem}
-          keyExtractor={item => (item.id ? item.id.toString() : Math.random().toString())}
-          contentContainerStyle={[styles.feed, { paddingBottom: 80 }]}
-          showsVerticalScrollIndicator={false}
-          removeClippedSubviews={false}
-          initialNumToRender={4}
-          maxToRenderPerBatch={8}
-          windowSize={7}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfigRef.current}
-          ItemSeparatorComponent={() => (
-            <View style={[styles.separator, darkMode && { backgroundColor: '#2b2b2b' }]} />
-          )}
-        />
+      <FlatList
+        data={publicacionesValidas}
+        renderItem={renderFeedItem}
+        keyExtractor={item => (item.id ? item.id.toString() : Math.random().toString())}
+        contentContainerStyle={[styles.feed, { paddingBottom: 80 }]}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
+        initialNumToRender={4}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfigRef.current}
+        ItemSeparatorComponent={() => (
+          <View style={[styles.separator, { backgroundColor: darkMode ? '#2b2b2b' : '#eaeaea' }]} />
+        )}
+      />
       {/* Botón flotante para publicar */}
       <TouchableOpacity style={[styles.fab, { backgroundColor: '#007AFF', shadowColor: '#007AFF' }]} onPress={() => setShowPublishModal(true)} activeOpacity={0.8}>
         <FontAwesome name="plus" size={28} color="#fff" />
@@ -824,7 +833,7 @@ const styles = StyleSheet.create({
   },
   // Mejora visual en la lista de publicaciones con video
   postCard: {
-    backgroundColor: '#1e1e1eff', // gris más oscuro para las publicaciones
+    backgroundColor: '#fff', // Cambiado de #1e1e1eff a #fff
     borderRadius: 18,
     marginBottom: 18,
     padding: 16,
@@ -835,7 +844,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   feedCard: {
-    backgroundColor: '#171717ff', // aplicar gris más oscuro también a feedCard
+    backgroundColor: '#fff', // Cambiado de #171717ff a #fff
     borderRadius: 0,
     marginBottom: 24,
     paddingBottom: 8,
@@ -865,7 +874,7 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   postTime: {
-    color: '#000000ff',
+    color: '#888', // Cambiado de #000000ff a #888
     fontSize: 12,
     marginTop: 2,
   },
@@ -948,13 +957,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#000000ff',
-    backgroundColor: '#292929ff', // igual tono gris más oscuro
+    borderColor: '#eaeaea', // Cambiado de #000000ff a #eaeaea
+    backgroundColor: '#fff', // Cambiado de #292929ff a #fff
     borderRadius: 12,
     padding: 12,
   },
   showMoreText: {
-    color: '#090909ff',
+    color: '#666', // Cambiado de #090909ff a #666
     fontSize: 13,
     marginTop: 6,
     paddingHorizontal: 12,
@@ -1126,7 +1135,7 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 1,
-    backgroundColor: darkMode ? '#2b2b2b' : '#eaeaea',
+    backgroundColor: '#eaeaea', // color por defecto
     width: '100%',
   },
   // Crear Publicación - estilos nuevos

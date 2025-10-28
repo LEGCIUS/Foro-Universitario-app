@@ -192,10 +192,12 @@ export default function ProductosList(props) {
       <View style={styles.header}>
         <Text style={[styles.title, darkMode && styles.titleDark]}>Productos</Text>
         <TouchableOpacity 
-          style={styles.menuButton}
+          style={[styles.menuButton, darkMode && styles.menuButtonDark]}
           onPress={() => setMenuVisible(!menuVisible)}
         >
-          <MaterialIcons name="menu" size={28} color="#007AFF" />
+          <Text style={[styles.menuButtonText, darkMode && styles.menuButtonTextDark]}>
+            Categorías
+          </Text>
         </TouchableOpacity>
         
         {menuVisible && (
@@ -334,24 +336,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 10,
   },
-  title: { 
-    fontSize: 20, 
-    fontWeight: 'bold',
-    textAlign: 'center',
-    color: '#0e141b',
-  },
-  titleDark: {
-    color: '#fff',
-  },
   menuButton: {
     position: 'absolute',
-    right: 16,
+    left: 16, // Cambiado de right a left
     padding: 8,
+    backgroundColor: '#007AFF', // Siempre azul como el FAB
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  menuButtonDark: {
+    backgroundColor: '#007AFF', // Mantener consistente en modo oscuro
+  },
+  menuButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  menuButtonTextDark: {
+    color: '#fff',
   },
   dropdown: {
     position: 'absolute',
     top: 45,
-    right: 16,
+    left: 16, // Cambiado de right a left para coincidir con el botón
     backgroundColor: 'white',
     borderRadius: 8,
     padding: 4,
@@ -552,4 +560,14 @@ const styles = StyleSheet.create({
   categoriasRow: { flexDirection: 'row', justifyContent: 'center', marginBottom: 12, flexWrap: 'wrap' },
   emptyText: { fontSize: 16, color: '#888' },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
+  title: { 
+    fontSize: 24, // Aumentado de 20 a 24
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#0e141b',
+    marginLeft: 40, // Añadir margen para compensar el botón de categorías
+  },
+  titleDark: {
+    color: '#fff',
+  },
 });
