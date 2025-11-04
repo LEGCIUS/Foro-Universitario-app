@@ -16,6 +16,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Añadir imports para tema y gradiente
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../ThemeContext';
+import Etiquetas from '../Etiquetas';
+import BuscadorUsuarios from '../BuscadorUsuarios';
 
 // Esta mierda ya la devolvi a 20 antes de que se joda todo
 // Si vuelve a joderse, gogo.
@@ -41,6 +43,10 @@ export default function HomeScreen({ onLogout, navigation }) {
   const [previewMedia, setPreviewMedia] = useState(null);
   const [mediaType, setMediaType] = useState(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [etiquetasSeleccionadas, setEtiquetasSeleccionadas] = useState([]);
+  const [etiquetasFiltro, setEtiquetasFiltro] = useState([]);
+  const [mostrarFiltros, setMostrarFiltros] = useState(false);
+  const [mostrarBuscador, setMostrarBuscador] = useState(false);
 
   // Cache en memoria para miniaturas de video
   const thumbCacheRef = useRef(new Map()); // key: mediaUrl, value: localUri
@@ -71,6 +77,30 @@ export default function HomeScreen({ onLogout, navigation }) {
         userAvatar = userData.foto_perfil || userAvatar;
       }
     }
+    // Parsear etiquetas de forma segura
+    let etiquetas = [];
+    try {
+      if (pub.etiquetas && typeof pub.etiquetas === 'string') {
+        // Si comienza con '[', es JSON array
+        if (pub.etiquetas.startsWith('[')) {
+          etiquetas = JSON.parse(pub.etiquetas);
+        } else {
+          // Si no, asumimos que está separado por comas
+          etiquetas = pub.etiquetas.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+        }
+      } else if (Array.isArray(pub.etiquetas)) {
+        etiquetas = pub.etiquetas;
+      }
+    } catch (error) {
+      console.warn('Error parsing etiquetas for post', pub.id, error);
+      // Como fallback, tratar como string separado por comas
+      if (pub.etiquetas && typeof pub.etiquetas === 'string') {
+        etiquetas = pub.etiquetas.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+      } else {
+        etiquetas = [];
+      }
+    }
+
     return {
       id: pub.id,
       text: pub.titulo,
@@ -80,22 +110,34 @@ export default function HomeScreen({ onLogout, navigation }) {
       userId: pub.carnet_usuario,
       userName,
       userAvatar,
+      etiquetas,
     };
   }, []);
 
-  const fetchPostsFromDB = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('publicaciones')
-      .select('*')
-      .order('fecha_publicacion', { ascending: false });
+  const fetchPostsFromDB = useCallback(async (retryCount = 0) => {
+    try {
+      const { data, error } = await supabase
+        .from('publicaciones')
+        .select('*')
+        .order('fecha_publicacion', { ascending: false });
 
-    if (error) {
+      if (error) {
+        throw error;
+      }
+
+      const postsWithUser = await Promise.all(data.map(mapPublicationToPost));
+      setPosts(postsWithUser);
+    } catch (error) {
       console.error('Error al obtener publicaciones:', error);
-      return;
+      
+      // Reintentar hasta 3 veces en caso de errores de red
+      if (retryCount < 3 && (error.message?.includes('timeout') || error.message?.includes('network') || error.message?.includes('fetch'))) {
+        console.log(`Reintentando obtener publicaciones (intento ${retryCount + 1}/3)...`);
+        setTimeout(() => {
+          fetchPostsFromDB(retryCount + 1);
+        }, 2000 * (retryCount + 1)); // Delay incremental: 2s, 4s, 6s
+      }
     }
-
-    const postsWithUser = await Promise.all(data.map(mapPublicationToPost));
-    setPosts(postsWithUser);
   }, [mapPublicationToPost]);
 
   // Cargar archivos del bucket al montar el componente
@@ -267,6 +309,7 @@ export default function HomeScreen({ onLogout, navigation }) {
             contenido: previewMedia ? mediaType : 'text',
             fecha_publicacion: new Date().toISOString(),
             carnet_usuario: carnet,
+            etiquetas: JSON.stringify(etiquetasSeleccionadas),
           },
         ]);
       if (error) {
@@ -277,6 +320,7 @@ export default function HomeScreen({ onLogout, navigation }) {
         setPreviewMedia(null);
         setMediaType(null);
         setShowPublishModal(false);
+        setEtiquetasSeleccionadas([]);
         fetchPostsFromDB();
       }
     } catch (err) {
@@ -346,6 +390,11 @@ export default function HomeScreen({ onLogout, navigation }) {
     const [captionExpanded, setCaptionExpanded] = useState(false);
     const showMore = captionText.length > 160;
     const [thumbUri, setThumbUri] = useState(null);
+  // Menú y reporte
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState('Contenido inapropiado');
+  const [reportText, setReportText] = useState('');
 
     // Generar o recuperar miniatura del video para mostrar instantáneamente
     useEffect(() => {
@@ -468,9 +517,10 @@ export default function HomeScreen({ onLogout, navigation }) {
     }, []);
 
     return (
+      <>
       <View style={[styles.feedCard, darkMode && { backgroundColor: '#171717' }]}>
         {/* Header */}
-        <View style={styles.postHeader}>
+  <View style={[styles.postHeader, { zIndex: 200, elevation: 8 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.postAvatar} />
             <View>
@@ -478,9 +528,44 @@ export default function HomeScreen({ onLogout, navigation }) {
               <Text style={[styles.postTime, darkMode && styles.postTimeDark]}>{formatRelativeTime(item.fecha)}</Text>
             </View>
           </View>
-          <TouchableOpacity>
-            <MaterialIcons name="more-vert" size={22} color={darkMode ? '#ddd' : '#444'} />
-          </TouchableOpacity>
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity onPress={() => setMenuOpen((v) => !v)}>
+              <MaterialIcons name="more-vert" size={22} color={darkMode ? '#ddd' : '#444'} />
+            </TouchableOpacity>
+            {menuOpen && (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 26,
+                  right: 0,
+                  backgroundColor: darkMode ? '#1f1f1f' : '#fff',
+                  borderRadius: 8,
+                  paddingVertical: 6,
+                  paddingHorizontal: 8,
+                  minWidth: 160,
+                  elevation: 20,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 6,
+                  borderWidth: darkMode ? 0 : 1,
+                  borderColor: '#e5e7eb',
+                  zIndex: 9999,
+                }}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    setMenuOpen(false);
+                    setReportModalVisible(true);
+                  }}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
+                >
+                  <MaterialIcons name="flag" size={18} color="#FF3B30" />
+                  <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Texto destacado si no hay media */}
@@ -598,6 +683,28 @@ export default function HomeScreen({ onLogout, navigation }) {
             )}
           </>
         )}
+
+        {/* Etiquetas */}
+        {item.etiquetas && item.etiquetas.length > 0 && (
+          <Etiquetas 
+            etiquetasSeleccionadas={item.etiquetas}
+            mostrarSoloSeleccionadas={true}
+            estiloPersonalizado={{
+              container: { paddingHorizontal: 12, paddingVertical: 8 },
+              etiqueta: { 
+                backgroundColor: 'transparent', // Sin fondo
+                borderRadius: 12,
+                marginRight: 6,
+                marginBottom: 4
+              },
+              texto: { 
+                fontSize: 12,
+                color: '#007AFF' // Azul para ambos modos
+              }
+            }}
+          />
+        )}
+
         {/* Comentarios */}
         {comments.length > 0 && (
           <TouchableOpacity activeOpacity={0.8}>
@@ -606,7 +713,105 @@ export default function HomeScreen({ onLogout, navigation }) {
         )}
         {/* Tiempo */}
         <Text style={[styles.postTimeFooter, darkMode && styles.postTimeFooterDark]}>{formatRelativeTime(item.fecha)}</Text>
-      </View>
+  </View>
+  {/* Modal de reporte */}
+      <Modal
+        visible={reportModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPressOut={() => setReportModalVisible(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={{
+              width: '96%',
+              maxWidth: 420,
+              backgroundColor: darkMode ? '#171717' : '#fff',
+              borderRadius: 16,
+              padding: 16,
+            }}
+          >
+            <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 12 }}>
+              Reportar publicación
+            </Text>
+            <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginBottom: 10 }}>
+              Indica el motivo del reporte.
+            </Text>
+            {['Contenido inapropiado','Violencia','Odio o acoso','Spam o engaño','Otro'].map((motivo) => (
+              <TouchableOpacity
+                key={motivo}
+                onPress={() => setReportReason(motivo)}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  marginBottom: 8,
+                  borderWidth: 1,
+                  borderColor: reportReason === motivo ? '#FF3B30' : (darkMode ? '#333' : '#e5e7eb'),
+                  backgroundColor: reportReason === motivo ? (darkMode ? '#2a1b1b' : '#ffeceb') : 'transparent',
+                }}
+              >
+                <Text style={{ color: darkMode ? '#eee' : '#222', fontWeight: reportReason === motivo ? '700' : '500' }}>{motivo}</Text>
+              </TouchableOpacity>
+            ))}
+            <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
+            <TextInput
+              value={reportText}
+              onChangeText={setReportText}
+              placeholder="Describe brevemente el problema"
+              placeholderTextColor={darkMode ? '#888' : '#999'}
+              multiline
+              style={{
+                minHeight: 80,
+                borderWidth: 1,
+                borderColor: darkMode ? '#333' : '#e5e7eb',
+                borderRadius: 10,
+                padding: 10,
+                color: darkMode ? '#fff' : '#111',
+                backgroundColor: darkMode ? '#111' : '#fafafa',
+              }}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
+              <TouchableOpacity onPress={() => setReportModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
+                <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    const carnet = await AsyncStorage.getItem('carnet');
+                    if (!carnet) throw new Error('No se encontró el usuario actual');
+                    const payload = {
+                      publicacion_id: item.id,
+                      carnet_reporta: carnet,
+                      carnet_publica: item.userId || null,
+                      motivo: reportReason,
+                      detalle: reportText || null,
+                      created_at: new Date().toISOString(),
+                    };
+                    const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
+                    if (error) throw error;
+                    setReportModalVisible(false);
+                    setReportText('');
+                    setReportReason('Contenido inapropiado');
+                    Alert.alert('Gracias', 'Tu reporte ha sido enviado. Nuestro equipo lo revisará.');
+                  } catch (err) {
+                    Alert.alert('Error', err.message || 'No se pudo enviar el reporte. Verifica tu conexión.');
+                  }
+                }}
+                style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#FF3B30' }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Enviar reporte</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+  </Modal>
+  </>
      );
    };
   // Memoizar FeedItem para reducir re-renders si props no cambian
@@ -622,36 +827,74 @@ export default function HomeScreen({ onLogout, navigation }) {
     );
   }), []);
 
+  // Filtrar publicaciones por etiquetas seleccionadas
+  const publicacionesFiltradas = useMemo(() => {
+    if (etiquetasFiltro.length === 0) {
+      return posts; // Si no hay filtros, mostrar todas
+    }
+    
+    return posts.filter(post => {
+      if (!post.etiquetas || post.etiquetas.length === 0) return false;
+      // Verificar si al menos una etiqueta del filtro está en la publicación
+      return etiquetasFiltro.some(filtro => 
+        post.etiquetas.some(etiqueta => 
+          etiqueta.toLowerCase().includes(filtro.toLowerCase())
+        )
+      );
+    });
+  }, [posts, etiquetasFiltro]);
+
   // Mostrar todas las publicaciones (con o sin media)
-  const publicacionesValidas = posts;
+  const publicacionesValidas = publicacionesFiltradas;
   // Trackear items visibles para lazy-load de videos
   const [visibleIds, setVisibleIds] = useState(new Set());
   const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 75 });
-  const onViewableItemsChanged = useCallback(({ viewableItems }) => {
+  
+  // Referencias para mantener valores actuales
+  const postsRef = useRef(posts);
+  const prefetchVideoRef = useRef(prefetchVideo);
+  
+  // Actualizar referencias cuando cambien los valores
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+  
+  useEffect(() => {
+    prefetchVideoRef.current = prefetchVideo;
+  }, [prefetchVideo]);
+  
+  // Crear una referencia estable para onViewableItemsChanged
+  const onViewableItemsChangedRef = useRef(({ viewableItems }) => {
     const ids = new Set(viewableItems.map(v => v.item.id));
     setVisibleIds(ids);
     // Prefetch de videos cercanos (±2 posiciones alrededor de lo visible)
     try {
+      const currentPosts = postsRef.current;
+      const currentPrefetchVideo = prefetchVideoRef.current;
+      
       const visibleIndexes = viewableItems
-        .map(v => posts.findIndex(p => p.id === v.item.id))
+        .map(v => currentPosts.findIndex(p => p.id === v.item.id))
         .filter(i => i >= 0);
       const targets = new Set();
       for (const idx of visibleIndexes) {
         for (let d = -2; d <= 2; d++) {
           const t = idx + d;
-          if (t >= 0 && t < posts.length) targets.add(t);
+          if (t >= 0 && t < currentPosts.length) targets.add(t);
         }
       }
       for (const t of targets) {
-        const p = posts[t];
+        const p = currentPosts[t];
         if (p?.mediaType === 'video' && p?.mediaUrl) {
-          prefetchVideo(p.mediaUrl);
+          currentPrefetchVideo(p.mediaUrl);
         }
       }
     } catch (_) {
       // ignorar
     }
-  }, [posts, prefetchVideo]);
+  });
+
+  // Función estable que no cambia entre renders
+  const onViewableItemsChanged = onViewableItemsChangedRef.current;
 
   // Memoizar renderItem y pasar isVisible a FeedItem
   const renderFeedItem = useCallback(({ item }) => (
@@ -662,7 +905,38 @@ export default function HomeScreen({ onLogout, navigation }) {
       colors={darkMode ? ['#232526', '#414345'] : ['#ffffff', '#f7fbff']}
       style={{ flex: 1 }}
     >
-      <View style={[styles.header, { backgroundColor: darkMode ? 'transparent' : '#fff' }]} />
+      <View style={[styles.header, { backgroundColor: darkMode ? 'transparent' : '#fff' }]}>
+        <View style={styles.headerContent}>
+          <Text style={[styles.headerTitle, { color: darkMode ? '#fff' : '#000' }]}>Foro Universitario</Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={styles.headerButton}
+              onPress={() => setMostrarBuscador(true)}
+            >
+              <MaterialIcons 
+                name="search" 
+                size={24} 
+                color={darkMode ? '#fff' : '#000'} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.filterButton, etiquetasFiltro.length > 0 && styles.filterButtonActive]}
+              onPress={() => setMostrarFiltros(true)}
+            >
+              <MaterialIcons 
+                name="filter-list" 
+                size={24} 
+                color={etiquetasFiltro.length > 0 ? '#007AFF' : (darkMode ? '#fff' : '#000')} 
+              />
+              {etiquetasFiltro.length > 0 && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{etiquetasFiltro.length}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
       <FlatList
         data={publicacionesValidas}
         renderItem={renderFeedItem}
@@ -701,6 +975,8 @@ export default function HomeScreen({ onLogout, navigation }) {
               </Text>
             </TouchableOpacity>
           </View>
+
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
 
           {/* Preview grande */}
           <View style={styles.previewLargeContainer}>
@@ -747,8 +1023,78 @@ export default function HomeScreen({ onLogout, navigation }) {
             onChangeText={setNewPost}
             multiline
           />
+
+          {/* Componente de Etiquetas */}
+          <Etiquetas 
+            etiquetasSeleccionadas={etiquetasSeleccionadas}
+            onEtiquetasChange={setEtiquetasSeleccionadas}
+            maxEtiquetas={5}
+            estiloPersonalizado={{
+              container: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 20 },
+              etiqueta: { borderRadius: 20 },
+              texto: { fontSize: 13 }
+            }}
+          />
+          </ScrollView>
         </View>
       </Modal>
+
+      {/* Modal de Filtros por Etiquetas */}
+      <Modal visible={mostrarFiltros} animationType="slide" transparent={true}>
+        <View style={styles.filterModalOverlay}>
+          <View style={[styles.filterModalContent, { backgroundColor: darkMode ? '#222' : '#fff' }]}>
+            <View style={styles.filterModalHeader}>
+              <Text style={[styles.filterModalTitle, { color: darkMode ? '#fff' : '#000' }]}>
+                Filtrar por Etiquetas
+              </Text>
+              <TouchableOpacity onPress={() => setMostrarFiltros(false)}>
+                <MaterialIcons name="close" size={24} color={darkMode ? '#fff' : '#000'} />
+              </TouchableOpacity>
+            </View>
+
+            <Etiquetas 
+              etiquetasSeleccionadas={etiquetasFiltro}
+              onEtiquetasChange={setEtiquetasFiltro}
+              maxEtiquetas={10}
+              estiloPersonalizado={{
+                container: { paddingVertical: 0 },
+                etiqueta: { borderRadius: 20 },
+                texto: { fontSize: 14 }
+              }}
+            />
+
+            <View style={styles.filterModalButtons}>
+              <TouchableOpacity 
+                style={[styles.filterModalButton, styles.clearButton]}
+                onPress={() => {
+                  setEtiquetasFiltro([]);
+                  setMostrarFiltros(false);
+                }}
+              >
+                <Text style={styles.clearButtonText}>Limpiar Filtros</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.filterModalButton, styles.applyButton]}
+                onPress={() => setMostrarFiltros(false)}
+              >
+                <Text style={styles.applyButtonText}>Aplicar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Buscador de Usuarios */}
+      <BuscadorUsuarios 
+        visible={mostrarBuscador}
+        onClose={() => setMostrarBuscador(false)}
+        onUsuarioSeleccionado={(usuario) => {
+          // Navegar al perfil del usuario seleccionado
+          setMostrarBuscador(false);
+          navigation.navigate('PerfilUsuario', { usuario });
+        }}
+      />
     </LinearGradient>
   );
 }
@@ -1214,14 +1560,120 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 16,
     fontWeight: '600',
+  },
+  descriptionInput: {
     marginHorizontal: 20,
     marginTop: 16,
-    minHeight: 120,
-    color: '#0f172a',
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e4e6eb',
+    borderRadius: 12,
+    backgroundColor: '#fff',
     fontSize: 16,
+    color: '#0f172a',
+    minHeight: 120,
+    textAlignVertical: 'top',
   },
   descriptionInputDark: {
     color: '#fff',
+  },
+  
+  // Estilos para el header con filtros
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 20,
+    position: 'relative',
+  },
+  filterButtonActive: {
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#007AFF',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  
+  // Estilos para el modal de filtros
+  filterModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  filterModalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  filterModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  filterModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 10,
+  },
+  filterModalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  clearButton: {
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  clearButtonText: {
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  applyButton: {
+    backgroundColor: '#007AFF',
+  },
+  applyButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });
 

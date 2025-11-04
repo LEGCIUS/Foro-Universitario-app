@@ -1,10 +1,72 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../ThemeContext';
+import { supabase } from '../../Supabase/supabaseClient';
+import { useFocusEffect } from '@react-navigation/native';
 
-const SettingScreen = ({ onLogout }) => {
+const SettingScreen = ({ onLogout, navigation }) => {
   const { darkMode, toggleTheme } = useTheme();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRole = async () => {
+      try {
+        const carnetRaw = await AsyncStorage.getItem('carnet');
+        const carnet = carnetRaw && String(carnetRaw).trim();
+        if (!carnet) return;
+        const { data, error } = await supabase
+          .from('usuarios')
+          .select('rol, is_admin')
+          .eq('carnet', carnet)
+          .single();
+        if (!mounted) return;
+        const isTrue = (v) => v === true || v === 'true' || v === 1 || v === '1';
+        const isAdminRole = (v) => {
+          if (typeof v !== 'string') return false;
+          const val = v.toLowerCase().trim();
+          return val === 'admin' || val === 'administrador';
+        };
+  const admin = isAdminRole(data?.rol) || isTrue(data?.is_admin);
+        setIsAdmin(Boolean(admin));
+      } catch (_) {
+        // silencioso
+      }
+    };
+    loadRole();
+    return () => { mounted = false; };
+  }, []);
+
+  // Re-evaluar el rol cuando la pantalla obtiene foco (por si el rol cambió sin remount)
+  useFocusEffect(
+    React.useCallback(() => {
+      let mounted = true;
+      const reload = async () => {
+        try {
+          const carnetRaw = await AsyncStorage.getItem('carnet');
+          const carnet = carnetRaw && String(carnetRaw).trim();
+          if (!carnet) return;
+          const { data, error } = await supabase
+            .from('usuarios')
+            .select('rol, is_admin')
+            .eq('carnet', carnet)
+            .single();
+          if (!mounted) return;
+          const isTrue = (v) => v === true || v === 'true' || v === 1 || v === '1';
+          const isAdminRole = (v) => {
+            if (typeof v !== 'string') return false;
+            const val = v.toLowerCase().trim();
+            return val === 'admin' || val === 'administrador';
+          };
+          const admin = isAdminRole(data?.rol) || isTrue(data?.is_admin);
+          setIsAdmin(Boolean(admin));
+        } catch (_) {}
+      };
+      reload();
+      return () => { mounted = false; };
+    }, [])
+  );
 
   const handleLogout = async () => {
     await onLogout();
@@ -30,6 +92,12 @@ const SettingScreen = ({ onLogout }) => {
   return (
     <View style={[styles.container, darkMode && styles.darkContainer]}>
       <Text style={[styles.title, darkMode && styles.darkTitle]}>Configuraciones</Text>
+
+      {isAdmin && (
+        <View style={styles.buttonSpacing}>
+          <CustomButton title="Modo administrador" color="#FF9F0A" onPress={() => navigation.navigate('AdminPanel')} />
+        </View>
+      )}
 
       <View style={styles.buttonSpacing}>
         <CustomButton title="Cerrar sesión" color="#00C6FB" onPress={handleLogout} />

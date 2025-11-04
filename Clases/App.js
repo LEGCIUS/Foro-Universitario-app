@@ -15,6 +15,7 @@ import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
 import Publications from '../Clases/Publications';
 import { useTheme } from './ThemeContext'; 
+import AdminScreen from './screens/AdminScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -116,9 +117,19 @@ export default function App() {
           </Stack.Screen>
           <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} />
           <Stack.Screen
+            name="PerfilUsuario"
+            component={require('./screens/PerfilUsuarioScreen').default}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
             name="Publicaciones"
             component={Publications}
             options={{ presentation: 'transparentModal', headerShown: false }}
+          />
+          <Stack.Screen
+            name="AdminPanel"
+            component={AdminScreen}
+            options={{ headerShown: false }}
           />
         </Stack.Navigator>
       )}
