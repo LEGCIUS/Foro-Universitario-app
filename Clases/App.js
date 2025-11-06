@@ -16,6 +16,7 @@ import ProductoForm from './ventas/ProductoForm';
 import PublicationsViewer from './publications/PublicationsViewer';
 import { useTheme } from './contexts/ThemeContext'; 
 import AdminScreen from './screens/AdminScreen';
+import ComunidadScreen from './screens/ComunidadScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -79,6 +80,7 @@ export default function App() {
                   tabBarIcon: ({ color, size }) => {
                     let iconName;
                     if (route.name === 'Home') iconName = 'home';
+                    else if (route.name === 'Comunidad') iconName = 'groups';
                     else if (route.name === 'Ventas') iconName = 'shopping-cart';
                     else if (route.name === 'Fotos') iconName = 'photo';
                     else if (route.name === 'Perfil') iconName = 'person';
@@ -104,14 +106,15 @@ export default function App() {
                 <Tab.Screen name="Home">
                   {props => <HomeScreen {...props} onLogout={handleLogout} />}
                 </Tab.Screen>
-                <Tab.Screen name="Perfil" component={PerfilUsuario} />
-                <Tab.Screen name="Fotos" component={HomeScreen} />
                 <Tab.Screen name="Ventas">
                   {props => <ProductosList {...props} navigation={props.navigation} />}
                 </Tab.Screen>
+                <Tab.Screen name="Comunidad" component={ComunidadScreen} />
+                <Tab.Screen name="Fotos" component={HomeScreen} />
                 <Tab.Screen name="Config">
                   {props => <SettingScreen {...props} onLogout={handleLogout} />}
                 </Tab.Screen>
+                <Tab.Screen name="Perfil" component={PerfilUsuario} />
               </Tab.Navigator>
             )}
           </Stack.Screen>
