@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert, Platform, FlatList } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert, Platform, FlatList } from 'react-native';
 import { Platform as RNPlatform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,8 +10,10 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { useNavigation } from '@react-navigation/native';
+import { useTheme } from '../ThemeContext';
 
 export default function ProductoForm({ onProductoPublicado, onCancelar, producto, modo }) {
+  const { darkMode } = useTheme();
   const [loadingProducto, setLoadingProducto] = useState(false);
   const navigation = useNavigation();
   const [nombre, setNombre] = useState('');
@@ -218,69 +220,75 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
           <Text style={{ marginTop: 12, color: '#888' }}>Cargando información del producto...</Text>
         </View>
       ) : (
-        <View style={styles.container}>
-          <Text style={styles.title}>Publicar producto</Text>
+        <View style={[styles.container, { backgroundColor: darkMode ? '#1e1e1e' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#ececec' }]}>
+          <Text style={[styles.title, { color: darkMode ? '#fff' : '#0b2545' }]}>{modo === 'editar' ? 'Editar producto' : 'Publicar producto'}</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#111827' }]}
             placeholder="Nombre del producto"
+            placeholderTextColor={darkMode ? '#94a3b8' : '#9aa4b2'}
             value={nombre}
             onChangeText={setNombre}
           />
           <View style={styles.categoriaContainer}>
-            <Text style={styles.categoriaLabel}>Categoría:</Text>
+            <Text style={[styles.categoriaLabel, { color: darkMode ? '#e5e7eb' : '#0f172a' }]}>Categoría:</Text>
             <View style={styles.categoriaOptions}>
               {['comida', 'servicios', 'articulos', 'decoracion'].map(cat => (
                 <TouchableOpacity
                   key={cat}
-                  style={[styles.categoriaOption, categoria === cat && styles.categoriaSelected]}
+                  style={[styles.categoriaOption, { backgroundColor: darkMode ? '#262626' : '#eef2ff', borderColor: darkMode ? '#2b2b2b' : '#dbeafe' }, categoria === cat && styles.categoriaSelected]}
                   onPress={() => setCategoria(cat)}
                 >
-                  <Text style={categoria === cat ? styles.categoriaSelectedText : styles.categoriaOptionText}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
+                  <Text style={categoria === cat ? styles.categoriaSelectedText : [styles.categoriaOptionText, { color: darkMode ? '#cbd5e1' : '#1e293b' }]}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#111827' }]}
             placeholder="Descripción"
+            placeholderTextColor={darkMode ? '#94a3b8' : '#9aa4b2'}
             value={descripcion}
             onChangeText={setDescripcion}
             multiline
           />
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#111827' }]}
             placeholder="Precio"
+            placeholderTextColor={darkMode ? '#94a3b8' : '#9aa4b2'}
             value={precio}
             onChangeText={setPrecio}
             keyboardType="numeric"
           />
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#111827' }]}
             placeholder="Nombre del vendedor"
+            placeholderTextColor={darkMode ? '#94a3b8' : '#9aa4b2'}
             value={nombreVendedor}
             onChangeText={setNombreVendedor}
           />
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#111827' }]}
             placeholder="Teléfono (WhatsApp)"
+            placeholderTextColor={darkMode ? '#94a3b8' : '#9aa4b2'}
             value={telefono}
             onChangeText={setTelefono}
             keyboardType="phone-pad"
           />
           <TextInput
-            style={[styles.input, { minHeight: 48, textAlignVertical: 'top' }]}
+            style={[styles.input, { minHeight: 48, textAlignVertical: 'top', backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb', color: darkMode ? '#e5e7eb' : '#111827' }]}
             placeholder="Mensaje predeterminado para WhatsApp"
+            placeholderTextColor={darkMode ? '#94a3b8' : '#9aa4b2'}
             value={mensajePredeterminado}
             onChangeText={setMensajePredeterminado}
             multiline
           />
-          <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 16 }}>Inicio de venta:</Text>
+          <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 16, color: darkMode ? '#e5e7eb' : '#0f172a' }}>Inicio de venta:</Text>
           {RNPlatform.OS !== 'web' && (
             <TouchableOpacity
-              style={[styles.input, { justifyContent: 'center', alignItems: 'flex-start' }]}
+              style={[styles.input, { justifyContent: 'center', alignItems: 'flex-start', backgroundColor: darkMode ? '#121212' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#e5e7eb' }]}
               onPress={() => setShowHoraPicker(true)}
             >
-              <Text style={{ color: horaInicioVenta ? '#333' : '#aaa', fontSize: 16 }}>
+              <Text style={{ color: horaInicioVenta ? (darkMode ? '#e5e7eb' : '#111827') : (darkMode ? '#94a3b8' : '#9aa4b2'), fontSize: 16 }}>
                 {horaInicioVenta ? horaInicioVenta.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Selecciona la hora (opcional)'}
               </Text>
             </TouchableOpacity>
@@ -294,7 +302,7 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
               onChange={handleHoraChange}
             />
           )}
-          <TouchableOpacity style={styles.imageButton} onPress={pickImagesAndUpload} disabled={subiendo}>
+          <TouchableOpacity style={[styles.imageButton, { backgroundColor: '#007AFF' }]} onPress={pickImagesAndUpload} disabled={subiendo}>
             <Text style={styles.imageButtonText}>{previewUris.length > 0 ? 'Cambiar fotos' : 'Subir fotos'}</Text>
           </TouchableOpacity>
           {previewUris.length > 0 && (
@@ -314,17 +322,17 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
               removeClippedSubviews={true}
             />
           )}
-          <TouchableOpacity style={styles.publishButton} onPress={handlePublicar} disabled={subiendo}>
+          <TouchableOpacity style={[styles.publishButton, { backgroundColor: '#007AFF' }]} onPress={handlePublicar} disabled={subiendo}>
             {subiendo ? <ActivityIndicator color="#fff" /> : <Text style={styles.publishButtonText}>Publicar</Text>}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelButton} onPress={() => {
+          <TouchableOpacity style={[styles.cancelButton, { borderColor: darkMode ? '#374151' : '#cbd5e1', backgroundColor: 'transparent' }]} onPress={() => {
             if (onCancelar) {
               onCancelar();
             } else {
               navigation.goBack();
             }
           }}>
-            <Text style={styles.cancelButtonText}>Cancelar</Text>
+            <Text style={[styles.cancelButtonText, { color: darkMode ? '#e5e7eb' : '#111827' }]}>Cancelar</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -333,21 +341,21 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, backgroundColor: '#fff', borderRadius: 16, margin: 16, elevation: 4 },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 16, color: '#007AFF', textAlign: 'center' },
-  input: { borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 16 },
-  imageButton: { backgroundColor: '#007AFF', padding: 10, borderRadius: 8, alignItems: 'center', marginBottom: 12 },
+  container: { padding: 24, borderRadius: 16, margin: 16, elevation: 4, borderWidth: 1 },
+  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
+  input: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 16 },
+  imageButton: { padding: 10, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
   imageButtonText: { color: '#fff', fontWeight: 'bold' },
   imagePreview: { width: '100%', height: 180, borderRadius: 12, marginBottom: 12 },
-  publishButton: { backgroundColor: '#00C6FB', padding: 14, borderRadius: 8, alignItems: 'center' },
+  publishButton: { padding: 14, borderRadius: 10, alignItems: 'center' },
   publishButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
-  cancelButton: { backgroundColor: '#FF3B30', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  cancelButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  cancelButton: { padding: 12, borderRadius: 10, alignItems: 'center', marginTop: 8, borderWidth: 1 },
+  cancelButtonText: { fontWeight: 'bold', fontSize: 16 },
   categoriaContainer: { marginBottom: 16 },
   categoriaLabel: { fontWeight: 'bold', marginBottom: 8, fontSize: 16 },
   categoriaOptions: { flexDirection: 'row', flexWrap: 'wrap' },
-  categoriaOption: { backgroundColor: '#eee', padding: 8, borderRadius: 8, marginRight: 8, marginBottom: 8 },
+  categoriaOption: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, marginRight: 8, marginBottom: 8, borderWidth: 1 },
   categoriaSelected: { backgroundColor: '#007AFF' },
-  categoriaOptionText: { color: '#333', fontWeight: 'bold' },
-  categoriaSelectedText: { color: '#fff', fontWeight: 'bold' },
+  categoriaOptionText: { color: '#1e293b', fontWeight: '700' },
+  categoriaSelectedText: { color: '#fff', fontWeight: '700' },
 });

@@ -959,18 +959,18 @@ export default function HomeScreen({ onLogout, navigation }) {
       </TouchableOpacity>
       {/* Modal de publicación (full-screen) */}
       <Modal visible={showPublishModal} animationType="slide" transparent={false}>
-        <View style={styles.createModalContainer}>
+        <View style={[styles.createModalContainer, darkMode && styles.createModalContainerDark]}>
           {/* Header */}
           <View style={styles.createHeader}>
             <TouchableOpacity onPress={() => setShowPublishModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <MaterialIcons name="close" size={28} color="#111" />
+              <MaterialIcons name="close" size={28} color={darkMode ? '#fff' : '#111'} />
             </TouchableOpacity>
-            <Text style={styles.createHeaderTitle}>Crear Publicación</Text>
+            <Text style={[styles.createHeaderTitle, darkMode && styles.createHeaderTitleDark]}>Crear Publicación</Text>
             <TouchableOpacity
               disabled={uploading || (!newPost.trim() && !previewMedia)}
               onPress={async () => { await handleAddPost(); }}
             >
-              <Text style={[styles.createPublishAction, (uploading || (!newPost.trim() && !previewMedia)) && styles.createPublishActionDisabled]}>
+              <Text style={[styles.createPublishAction, darkMode && styles.createPublishActionDark, (uploading || (!newPost.trim() && !previewMedia)) && styles.createPublishActionDisabled]}>
                 {uploading ? 'Publicando…' : 'Publicar'}
               </Text>
             </TouchableOpacity>
@@ -979,7 +979,7 @@ export default function HomeScreen({ onLogout, navigation }) {
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
 
           {/* Preview grande */}
-          <View style={styles.previewLargeContainer}>
+          <View style={[styles.previewLargeContainer, darkMode && styles.previewLargeContainerDark]}>
             {previewMedia ? (
               mediaType === 'video' && typeof Video !== 'undefined' ? (
                 <Video source={{ uri: previewMedia.uri }} style={styles.previewLargeMedia} useNativeControls resizeMode="cover" />
@@ -987,8 +987,8 @@ export default function HomeScreen({ onLogout, navigation }) {
                 <Image source={{ uri: previewMedia.uri }} style={styles.previewLargeMedia} resizeMode="cover" />
               )
             ) : (
-              <View style={[styles.previewLargeMedia, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#f2f2f2' }]}>
-                <MaterialIcons name="image" size={56} color="#c4c4c4" />
+              <View style={[styles.previewLargeMedia, { alignItems: 'center', justifyContent: 'center', backgroundColor: darkMode ? '#111' : '#f2f2f2' }]}> 
+                <MaterialIcons name="image" size={56} color={darkMode ? '#777' : '#c4c4c4'} />
               </View>
             )}
             {previewMedia && (
@@ -1004,21 +1004,21 @@ export default function HomeScreen({ onLogout, navigation }) {
 
           {/* Botón – seleccionar de la galería */}
           <TouchableOpacity
-            style={styles.galleryPickerRow}
+            style={[styles.galleryPickerRow, darkMode && styles.galleryPickerRowDark]}
             onPress={() => pickMedia('all')}
             activeOpacity={0.8}
           >
-            <View style={styles.galleryIconWrap}>
-              <MaterialIcons name="image" size={18} color="#1976D2" />
+            <View style={[styles.galleryIconWrap, darkMode && styles.galleryIconWrapDark]}>
+              <MaterialIcons name="image" size={18} color={darkMode ? '#7cc0ff' : '#1976D2'} />
             </View>
-            <Text style={styles.galleryPickerText}>Seleccionar de la galería</Text>
+            <Text style={[styles.galleryPickerText, darkMode && styles.galleryPickerTextDark]}>Seleccionar de la galería</Text>
           </TouchableOpacity>
 
           {/* Descripción */}
           <TextInput
-            style={styles.descriptionInput}
+            style={[styles.descriptionInput, darkMode && styles.descriptionInputDark]}
             placeholder="Escribe una descripción..."
-            placeholderTextColor="#9aa0a6"
+            placeholderTextColor={darkMode ? '#7a8394' : '#9aa0a6'}
             value={newPost}
             onChangeText={setNewPost}
             multiline
@@ -1490,6 +1490,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingTop: Platform.OS === 'ios' ? 48 : 24,
   },
+  createModalContainerDark: {
+    backgroundColor: '#0b0f14',
+  },
   createHeader: {
     height: 56,
     paddingHorizontal: 16,
@@ -1510,6 +1513,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  createPublishActionDark: {
+    color: '#66b2ff',
+  },
   createPublishActionDisabled: {
     color: '#b3d4ff',
   },
@@ -1518,6 +1524,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#f2f2f2',
+  },
+  previewLargeContainerDark: {
+    backgroundColor: '#111',
   },
   previewLargeMedia: {
     width: '100%',
@@ -1547,6 +1556,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
   },
+  galleryPickerRowDark: {
+    borderColor: '#333',
+    backgroundColor: '#0f1720',
+  },
   galleryIconWrap: {
     width: 28,
     height: 28,
@@ -1556,10 +1569,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 10,
   },
+  galleryIconWrapDark: {
+    backgroundColor: '#0b2640',
+  },
   galleryPickerText: {
     color: '#0f172a',
     fontSize: 16,
     fontWeight: '600',
+  },
+  galleryPickerTextDark: {
+    color: '#dbeafe',
   },
   descriptionInput: {
     marginHorizontal: 20,
@@ -1576,6 +1595,8 @@ const styles = StyleSheet.create({
   },
   descriptionInputDark: {
     color: '#fff',
+    backgroundColor: '#121212',
+    borderColor: '#333',
   },
   
   // Estilos para el header con filtros

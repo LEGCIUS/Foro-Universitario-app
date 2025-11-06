@@ -249,7 +249,7 @@ const createStyles = (darkMode) => StyleSheet.create({
   },
   textoEtiqueta: {
     fontSize: 12,
-    color: '#000000ff', // Azul para ambos modos
+    color: darkMode ? '#007AFF' : '#0f172a',
   },
   textoEtiquetaSeleccionada: {
     color: '#fff',

@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const SettingScreen = ({ onLogout, navigation }) => {
   const { darkMode, toggleTheme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -75,116 +78,136 @@ const SettingScreen = ({ onLogout, navigation }) => {
   const handlePlaceholder = (title) => {
     Alert.alert(title, 'Funcionalidad no implementada aún.');
   };
-
-  const CustomButton = ({ title, color, onPress }) => (
-    <TouchableOpacity 
-      style={[
-        styles.button, 
-        { backgroundColor: color },
-        darkMode && styles.buttonDark
-      ]} 
-      onPress={onPress}
-    >
-      <Text style={styles.buttonText}>{title}</Text>
+  // Item de lista con icono, título, y chevron
+  const ListItem = ({ title, subtitle, icon, iconBg, iconColor, onPress, destructive }) => (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={[styles.itemCard, { backgroundColor: darkMode ? '#1e1e1e' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#ececec' }]}>
+      <View style={[styles.itemIconWrap, { backgroundColor: iconBg || (darkMode ? '#2a2a2a' : '#eef2ff') }]}> 
+        <MaterialIcons name={icon} size={22} color={iconColor || (darkMode ? '#9ab' : '#2563EB')} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.itemTitle, { color: destructive ? '#EF4444' : (darkMode ? '#fff' : '#0f172a') }]} numberOfLines={1}>{title}</Text>
+        {subtitle ? (
+          <Text style={[styles.itemSubtitle, { color: darkMode ? '#aaa' : '#667085' }]} numberOfLines={2}>{subtitle}</Text>
+        ) : null}
+      </View>
+      <MaterialIcons name="chevron-right" size={22} color={darkMode ? '#aaa' : '#9AA0A6'} />
     </TouchableOpacity>
   );
 
   return (
-    <View style={[styles.container, darkMode && styles.darkContainer]}>
-      <Text style={[styles.title, darkMode && styles.darkTitle]}>Configuraciones</Text>
+    <View style={[styles.container, { backgroundColor: darkMode ? '#121212' : '#f5f7fb', paddingTop: Math.max(12, insets.top + 8) }]}>
+      <View style={styles.headerRow}>
+        <Text style={[styles.title, { color: darkMode ? '#fff' : '#0b2545' }]}>Configuraciones</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+        {isAdmin ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: darkMode ? '#e5e7eb' : '#475569' }]}>Administración</Text>
+            <ListItem
+              title="Modo administrador"
+              subtitle="Gestiona reportes y moderación"
+              icon="admin-panel-settings"
+              iconBg={darkMode ? '#243244' : '#e6f0ff'}
+              iconColor={darkMode ? '#7fb0ff' : '#2563EB'}
+              onPress={() => navigation.navigate('AdminPanel')}
+            />
+          </View>
+        ) : null}
 
-      {isAdmin && (
-        <View style={styles.buttonSpacing}>
-          <CustomButton title="Modo administrador" color="#FF9F0A" onPress={() => navigation.navigate('AdminPanel')} />
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: darkMode ? '#e5e7eb' : '#475569' }]}>Preferencias</Text>
+          <ListItem
+            title={darkMode ? 'Tema: Oscuro' : 'Tema: Claro'}
+            subtitle="Toca para cambiar el tema de la aplicación"
+            icon={darkMode ? 'dark-mode' : 'light-mode'}
+            iconBg={darkMode ? '#2b2b2b' : '#fff7e6'}
+            iconColor={darkMode ? '#fbbf24' : '#f59e0b'}
+            onPress={toggleTheme}
+          />
+          <ListItem
+            title="Notificaciones"
+            subtitle="Preferencias de alertas y avisos"
+            icon="notifications-none"
+            onPress={() => handlePlaceholder('Notificaciones')}
+          />
+          <ListItem
+            title="Idioma"
+            subtitle="Selecciona tu idioma preferido"
+            icon="language"
+            onPress={() => handlePlaceholder('Idioma')}
+          />
         </View>
-      )}
 
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Cerrar sesión" color="#00C6FB" onPress={handleLogout} />
-      </View>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: darkMode ? '#e5e7eb' : '#475569' }]}>Ayuda y Legal</Text>
+          <ListItem
+            title="Ayuda"
+            subtitle="Preguntas frecuentes y soporte"
+            icon="help-outline"
+            onPress={() => handlePlaceholder('Ayuda')}
+          />
+          <ListItem
+            title="Términos y condiciones"
+            icon="description"
+            onPress={() => handlePlaceholder('Términos y condiciones')}
+          />
+          <ListItem
+            title="Política de privacidad"
+            icon="privacy-tip"
+            onPress={() => handlePlaceholder('Política de privacidad')}
+          />
+        </View>
 
-      <View style={styles.buttonSpacing}>
-        <CustomButton
-          title={darkMode ? "Modo claro" : "Modo oscuro"}
-          color={darkMode ? "#444" : "#222"}
-          onPress={toggleTheme}
-        />
-      </View>
-
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Ayuda" color="#007AFF" onPress={() => handlePlaceholder('Ayuda')} />
-      </View>
-
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Términos y condiciones" color="#007AFF" onPress={() => handlePlaceholder('Términos y condiciones')} />
-      </View>
-
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Política de privacidad" color="#007AFF" onPress={() => handlePlaceholder('Política de privacidad')} />
-      </View>
-
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Notificaciones" color="#007AFF" onPress={() => handlePlaceholder('Notificaciones')} />
-      </View>
-
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Idioma" color="#007AFF" onPress={() => handlePlaceholder('Idioma')} />
-      </View>
-
-      <View style={styles.buttonSpacing}>
-        <CustomButton title="Eliminar cuenta" color="#FF3B30" onPress={() => handlePlaceholder('Eliminar cuenta')} />
-      </View>
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: darkMode ? '#e5e7eb' : '#475569' }]}>Cuenta</Text>
+          <ListItem
+            title="Cerrar sesión"
+            icon="logout"
+            iconBg={darkMode ? '#3b1f1f' : '#ffecec'}
+            iconColor="#EF4444"
+            onPress={handleLogout}
+            destructive
+          />
+          <ListItem
+            title="Eliminar cuenta"
+            icon="delete-forever"
+            iconBg={darkMode ? '#3b1f1f' : '#ffecec'}
+            iconColor="#EF4444"
+            onPress={() => handlePlaceholder('Eliminar cuenta')}
+            destructive
+          />
+        </View>
+      </ScrollView>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-  },
-  darkContainer: {
-    backgroundColor: '#222',
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#222',
-  },
-  darkTitle: {
-    color: '#fff',
-  },
-  buttonSpacing: {
+  container: { flex: 1, paddingHorizontal: 16 },
+  headerRow: { paddingBottom: 6 },
+  title: { fontSize: 22, fontWeight: '800' },
+  section: { marginTop: 16 },
+  sectionTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
+  itemCard: {
     width: '100%',
-    marginTop: 12,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 1,
   },
-  button: {
-    padding: 15,
-    borderRadius: 12,
+  itemIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    marginRight: 12,
   },
-  buttonDark: {
-    shadowColor: '#fff',
-    shadowOpacity: 0.15,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  itemTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  itemSubtitle: { fontSize: 12 },
 });
 
 export default SettingScreen;

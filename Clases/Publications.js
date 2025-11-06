@@ -2,11 +2,15 @@ import React, { useState, useRef } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal } from 'react-native';
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useTheme } from './ThemeContext';
 
 const { width, height } = Dimensions.get('window');
 
 export default function Publications({ route, navigation }) {
-  const { posts, initialIndex = 0, darkMode } = route.params;
+  const theme = useTheme?.();
+  const themeDark = theme?.darkMode ?? false;
+  const paramDark = route?.params?.darkMode;
+  const darkMode = typeof paramDark === 'boolean' ? paramDark : themeDark;
 
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [likes, setLikes] = useState(posts[initialIndex]?.likes || 0);
@@ -37,13 +41,13 @@ export default function Publications({ route, navigation }) {
   };
 
   const renderItem = ({ item, index }) => (
-    <View style={styles.detailContainer}>
+    <View style={[styles.detailContainer, darkMode && styles.detailContainerDark]}>
       {/* Header: avatar + username */}
       <View style={styles.headerRow}>
-        <View style={styles.avatarPlaceholder}>
-          <Text style={styles.avatarLetter}>{(item.usuario_nombre || item.usuario || 'U').charAt(0).toUpperCase()}</Text>
+        <View style={[styles.avatarPlaceholder, darkMode && styles.avatarPlaceholderDark]}>
+          <Text style={[styles.avatarLetter, darkMode && { color: '#e5e7eb' }]}>{(item.usuario_nombre || item.usuario || 'U').charAt(0).toUpperCase()}</Text>
         </View>
-        <Text style={styles.username}>{item.usuario_nombre || item.usuario || 'Usuario'}</Text>
+        <Text style={[styles.username, darkMode && styles.usernameDark]}>{item.usuario_nombre || item.usuario || 'Usuario'}</Text>
       </View>
       <View style={styles.mediaContainer}>
         {item.contenido === 'image' && item.archivo_url && (
@@ -68,30 +72,30 @@ export default function Publications({ route, navigation }) {
       <View style={styles.actionsRow}>
         <View style={styles.leftActions}>
           <TouchableOpacity onPress={handleLike} style={styles.actionBtn}>
-            <MaterialIcons name="favorite-border" size={26} color="#222" />
+            <MaterialIcons name="favorite-border" size={26} color={darkMode ? '#eee' : '#222'} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn}>
-            <MaterialIcons name="chat-bubble-outline" size={26} color="#222" />
+            <MaterialIcons name="chat-bubble-outline" size={26} color={darkMode ? '#eee' : '#222'} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn}>
-            <MaterialIcons name="share" size={26} color="#222" />
+            <MaterialIcons name="share" size={26} color={darkMode ? '#eee' : '#222'} />
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={styles.actionBtn}>
-          <MaterialIcons name="bookmark-border" size={26} color="#222" />
+          <MaterialIcons name="bookmark-border" size={26} color={darkMode ? '#eee' : '#222'} />
         </TouchableOpacity>
       </View>
-      <Text style={styles.captionTitle}>{item.titulo}</Text>
+      <Text style={[styles.captionTitle, darkMode && styles.captionTitleDark]}>{item.titulo}</Text>
       <View style={styles.likesRow}>
-        <Text style={styles.likesText}>{likes} Me gusta</Text>
+        <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{likes} Me gusta</Text>
       </View>
-      <Text style={[styles.commentsTitle, darkMode && { color: "#222" }]}>Comentarios:</Text>
+      <Text style={[styles.commentsTitle, darkMode && styles.commentsTitleDark]}>Comentarios:</Text>
       <ScrollView style={styles.commentsList}>
         {comments.length === 0 ? (
-          <Text style={{ color: '#888' }}>Sin comentarios.</Text>
+          <Text style={{ color: darkMode ? '#aaa' : '#888' }}>Sin comentarios.</Text>
         ) : (
           comments.map((c, idx) => (
-            <Text key={idx} style={{ marginBottom: 2, color: darkMode ? "#222" : "#222" }}>
+            <Text key={idx} style={{ marginBottom: 2, color: darkMode ? '#e5e7eb' : '#222' }}>
               <Text style={{ fontWeight: 'bold' }}>{c.usuario}: </Text>
               {c.texto}
             </Text>
@@ -100,9 +104,9 @@ export default function Publications({ route, navigation }) {
       </ScrollView>
       <View style={styles.commentInputRow}>
         <TextInput
-          style={[styles.input, { flex: 1, height: 40, marginBottom: 0, color: darkMode ? "#222" : "#222" }]}
+          style={[styles.input, darkMode && styles.inputDark, { flex: 1, height: 40, marginBottom: 0, color: darkMode ? '#e5e7eb' : '#222' }]}
           placeholder="Escribe un comentario..."
-          placeholderTextColor={darkMode ? "#aaa" : "#888"}
+          placeholderTextColor={darkMode ? '#8b93a3' : '#888'}
           value={newComment}
           onChangeText={setNewComment}
         />
@@ -122,13 +126,13 @@ export default function Publications({ route, navigation }) {
   }, [currentIndex]);
 
   return (
-    <View style={styles.overlay}>
+    <View style={[styles.overlay, darkMode && styles.overlayDark]}>
       {/* X fija arriba a la derecha */}
       <TouchableOpacity
         onPress={() => navigation.goBack()}
-        style={styles.closeButton}
+        style={[styles.closeButton, darkMode && styles.closeButtonDark]}
       >
-        <MaterialIcons name="close" size={32} color="#FF3B30" />
+        <MaterialIcons name="close" size={32} color={darkMode ? '#fff' : '#FF3B30'} />
       </TouchableOpacity>
       <FlatList
         ref={flatListRef}
@@ -172,7 +176,7 @@ export default function Publications({ route, navigation }) {
           onPressOut={() => setSelectedPost(null)} // Cierra al tocar fuera
         >
           <View style={styles.centeredView}>
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, darkMode && styles.modalContentDark]}>
               {/* Aquí el contenido de la publicación */}
               {selectedPost?.contenido === 'image' && (
                 <Image
@@ -190,7 +194,7 @@ export default function Publications({ route, navigation }) {
                   isLooping
                 />
               )}
-              <Text style={styles.modalTitle}>{selectedPost?.titulo}</Text>
+              <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>{selectedPost?.titulo}</Text>
               {/* Likes, comentarios, etc. */}
             </View>
           </View>
@@ -205,6 +209,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f7f9fc',
   },
+  overlayDark: {
+    backgroundColor: '#0b0f14',
+  },
   closeButton: {
     position: 'absolute',
     top: 20,
@@ -215,6 +222,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     elevation: 6,
   },
+  closeButtonDark: {
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
   detailContainer: {
     width: width,
     height: height,
@@ -224,6 +234,9 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
     paddingHorizontal: 0, // sin padding horizontal para que el media ocupe todo el ancho
     backgroundColor: '#f7f9fc',
+  },
+  detailContainerDark: {
+    backgroundColor: '#0b0f14',
   },
   mediaContainer: {
     width: width,
@@ -265,13 +278,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 10,
   },
+  avatarPlaceholderDark: {
+    backgroundColor: '#1f2937',
+  },
   avatarLetter: { fontWeight: '700', color: '#0b2545' },
   username: { fontSize: 16, fontWeight: '700', color: '#0b2545' },
+  usernameDark: { color: '#e5e7eb' },
   actionsRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8 },
   leftActions: { flexDirection: 'row' },
   actionBtn: { marginRight: 12 },
   captionTitle: { fontSize: 16, fontWeight: '700', color: '#0b2545', paddingHorizontal: 10, marginBottom: 6 },
+  captionTitleDark: { color: '#e5e7eb' },
   likesText: { color: '#222', paddingHorizontal: 10, marginBottom: 6 },
+  likesTextDark: { color: '#e5e7eb' },
   title: {
     fontSize: 18,
     fontWeight: '800',
@@ -295,6 +314,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginLeft: 6,
   },
+  commentsTitleDark: {
+    color: '#e5e7eb',
+  },
   commentsList: {
     maxHeight: 120,
     marginBottom: 8,
@@ -314,6 +336,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     backgroundColor: '#fff',
+  },
+  inputDark: {
+    borderColor: '#333',
+    backgroundColor: '#111',
   },
   button: {
     backgroundColor: '#007AFF',
@@ -351,6 +377,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     elevation: 10,
   },
+  modalContentDark: {
+    backgroundColor: '#121212',
+  },
   media: {
     width: 320,
     height: 320,
@@ -363,5 +392,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: '#0b2545',
     textAlign: 'center',
+  },
+  modalTitleDark: {
+    color: '#e5e7eb',
   },
 });
