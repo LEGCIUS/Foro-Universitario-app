@@ -11,10 +11,10 @@ export default function SplashScreenCustom() {
       <View style={[styles.circle, styles.circle4]} />
 
       {/* Imágenes circulares */}
-      <Image source={require('../assets/avatar1.png')} style={[styles.avatar, styles.avatar1]} />
-      <Image source={require('../assets/avatar2.png')} style={[styles.avatar, styles.avatar2]} />
-      <Image source={require('../assets/avatar3.png')} style={[styles.avatar, styles.avatar3]} />
-      <Image source={require('../assets/avatar4.png')} style={[styles.avatar, styles.avatar4]} />
+      <Image source={require('../../assets/avatar1.png')} style={[styles.avatar, styles.avatar1]} />
+      <Image source={require('../../assets/avatar2.png')} style={[styles.avatar, styles.avatar2]} />
+      <Image source={require('../../assets/avatar3.png')} style={[styles.avatar, styles.avatar3]} />
+      <Image source={require('../../assets/avatar4.png')} style={[styles.avatar, styles.avatar4]} />
 
       {/* Card inferior */}
       <View style={styles.card}> 

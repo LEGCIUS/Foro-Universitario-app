@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert, RefreshControl, Platform, Modal, TextInput, Linking, ScrollView, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useTheme } from '../ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
 
 export default function AdminScreen({ navigation }) {

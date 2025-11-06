@@ -1,23 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { View, Text, Button, FlatList, TextInput, StyleSheet, Image, TouchableOpacity, Platform, Modal, Alert, ScrollView, Dimensions, Animated, Linking, AppState } from 'react-native';
+import { View, Text, Button, FlatList, TextInput, StyleSheet, TouchableOpacity, Platform, Modal, Dimensions, Animated } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import { Audio, Video } from 'expo-av';
-import { Asset } from 'expo-asset';
-import * as VideoThumbnails from 'expo-video-thumbnails';
+import { Audio } from 'expo-av';
 import { supabase } from '../../Supabase/supabaseClient';
-import { Buffer } from 'buffer';
-global.Buffer = global.Buffer || Buffer;
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 const { width } = Dimensions.get('window');
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Añadir imports para tema y gradiente
 import { LinearGradient } from 'expo-linear-gradient';
-import { useTheme } from '../ThemeContext';
-import Etiquetas from '../Etiquetas';
-import BuscadorUsuarios from '../BuscadorUsuarios';
+import { useTheme } from '../contexts/ThemeContext';
+import Etiquetas from '../components/Etiquetas';
+import BuscadorUsuarios from '../components/BuscadorUsuarios';
+import FeedList from '../publications/FeedList';
+import CreatePublicationModal from '../publications/CreatePublicationModal';
 
 // Esta mierda ya la devolvi a 20 antes de que se joda todo
 // Si vuelve a joderse, gogo.
@@ -29,7 +25,7 @@ import BuscadorUsuarios from '../BuscadorUsuarios';
 
 
 
-global.Buffer = global.Buffer || Buffer;
+// Buffer polyfill no longer needed here after refactor
 
 export default function HomeScreen({ onLogout, navigation }) {
   const isFocused = useIsFocused();
@@ -38,29 +34,12 @@ export default function HomeScreen({ onLogout, navigation }) {
   const { darkMode } = useTheme();
 
   const [posts, setPosts] = useState([]);
-  const [newPost, setNewPost] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [previewMedia, setPreviewMedia] = useState(null);
-  const [mediaType, setMediaType] = useState(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const [etiquetasSeleccionadas, setEtiquetasSeleccionadas] = useState([]);
   const [etiquetasFiltro, setEtiquetasFiltro] = useState([]);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarBuscador, setMostrarBuscador] = useState(false);
 
-  // Cache en memoria para miniaturas de video
-  const thumbCacheRef = useRef(new Map()); // key: mediaUrl, value: localUri
-  // Control de prefetch para videos cercanos al viewport
-  const prefetchingRef = useRef(new Set()); // de mediaUrl
-  const prefetchVideo = useCallback(async (uri) => {
-    if (!uri || prefetchingRef.current.has(uri)) return;
-    try {
-      prefetchingRef.current.add(uri);
-      await Asset.fromURI(uri).downloadAsync();
-    } catch (_) {
-      // ignorar fallos de prefetch
-    }
-  }, []);
+  // Video prefetch is handled inside FeedItem now
 
   // Helper: mapear fila de publicaciones a modelo para el feed con datos de usuario
   const mapPublicationToPost = useCallback(async (pub) => {
@@ -201,135 +180,6 @@ export default function HomeScreen({ onLogout, navigation }) {
 
   // (DEBUG eliminado)
 
-  // Elegir imagen/video/audio y mostrar previsualización
-  const pickMedia = async (type) => {
-    let result;
-    if (type === 'audio') {
-      // Solo funciona en web y Android, no iOS
-      if (Platform.OS === 'web') {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'audio/*';
-        input.onchange = async (e) => {
-          const file = e.target.files[0];
-          if (file) {
-            setPreviewMedia({
-              uri: URL.createObjectURL(file),
-              file,
-              type: 'audio',
-              name: file.name,
-            });
-            setMediaType('audio');
-          }
-        };
-        input.click();
-      } else {
-        alert('La subida de audio solo está soportada en web por ahora.');
-      }
-      return;
-    }
-
-    if (Platform.OS === 'web') {
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: type === 'image'
-          ? ['image']
-          : type === 'video'
-          ? ['video']
-          : ['image', 'video'],
-        allowsEditing: false,
-        quality: 1,
-      });
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        setPreviewMedia(asset);
-        setMediaType(asset.type?.startsWith('video') ? 'video' : 'image');
-      }
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes:
-          type === 'image'
-            ? ImagePicker.MediaTypeOptions.Images
-            : type === 'video'
-            ? ImagePicker.MediaTypeOptions.Videos
-            : ImagePicker.MediaTypeOptions.All,
-        allowsEditing: false,
-        quality: 1,
-      });
-      if (!result.canceled) {
-        setPreviewMedia(result.assets[0]);
-        setMediaType(result.assets[0].type?.startsWith('video') ? 'video' : 'image');
-      }
-    }
-  };
-
-  // Subir publicación con texto y/o media
-  const handleAddPost = async () => {
-    if (!newPost.trim() && !previewMedia) return;
-    setUploading(true);
-    try {
-      // Obtener carnet del usuario actual
-      const carnet = await AsyncStorage.getItem('carnet');
-      if (!carnet) throw new ReferenceError("No se encontró el carnet del usuario");
-      let publicUrl = null;
-      // Si hay media, subir a Supabase Storage y obtener la URL pública
-      if (previewMedia?.uri) {
-        const uri = previewMedia.uri;
-        const fileName = uri.split('/').pop();
-        const fileType = fileName.split('.').pop();
-        const filePath = `${carnet}/publicaciones/${Date.now()}_${fileName}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: 'base64',
-        });
-        const fileBuffer = Buffer.from(base64, 'base64');
-        const { data, error: uploadError } = await supabase.storage
-          .from('multimedia')
-          .upload(filePath, fileBuffer, {
-            contentType: mediaType === 'video' ? `video/${fileType}` : `image/${fileType}`,
-            cacheControl: '3600', // 1 hour (seconds) - ajusta según necesites
-            upsert: true,
-          });
-        if (uploadError) {
-          Alert.alert('Error', uploadError.message || 'No se pudo subir el archivo');
-          setUploading(false);
-          return;
-        }
-        const { data: publicData } = supabase
-          .storage
-          .from('multimedia')
-          .getPublicUrl(filePath);
-        publicUrl = publicData.publicUrl + `?t=${Date.now()}`;
-      }
-      // Guardar publicación con la URL pública
-      const { error } = await supabase
-        .from('publicaciones')
-        .insert([
-          {
-            titulo: newPost,
-            archivo_url: publicUrl,
-            contenido: previewMedia ? mediaType : 'text',
-            fecha_publicacion: new Date().toISOString(),
-            carnet_usuario: carnet,
-            etiquetas: JSON.stringify(etiquetasSeleccionadas),
-          },
-        ]);
-      if (error) {
-        Alert.alert('Error', 'No se pudo publicar.');
-        console.error('Error al publicar:', error);
-      } else {
-        setNewPost('');
-        setPreviewMedia(null);
-        setMediaType(null);
-        setShowPublishModal(false);
-        setEtiquetasSeleccionadas([]);
-        fetchPostsFromDB();
-      }
-    } catch (err) {
-      Alert.alert('Error', 'Ocurrió un error inesperado.');
-      console.error('Error inesperado:', err);
-    }
-    setUploading(false);
-  };
-
   // Helpers UI
   const formatNumber = (n) => {
     if (typeof n !== 'number') return '0';
@@ -362,470 +212,7 @@ export default function HomeScreen({ onLogout, navigation }) {
     }
   };
 
-  // Componente funcional para cada publicación del feed (UI estilo Instagram)
-  const FeedItem = ({ item, isVisible, isScreenFocused }) => {
-      // leer tema dentro del item para aplicar colores a su UI
-      const { darkMode } = useTheme();
-       const hideControlsTimeout = useRef(null);
-    const [liked, setLiked] = useState(false);
-    const [likeCount, setLikeCount] = useState(item.likes || 0);
-    const [saved, setSaved] = useState(false);
-    const [commentText, setCommentText] = useState('');
-    const [comments, setComments] = useState(item.comments || []);
-
-    const [status, setStatus] = useState(null);
-    const [isPlaying, setIsPlaying] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
-  const [isReady, setIsReady] = useState(false);
-  const [showBufferingUI, setShowBufferingUI] = useState(false);
-  const bufferingTimerRef = useRef(null);
-  const [hasError, setHasError] = useState(false);
-    const [isMuted, setIsMuted] = useState(false);
-    const [durationMillis, setDurationMillis] = useState(0);
-    const [positionMillis, setPositionMillis] = useState(0);
-    const [barWidth, setBarWidth] = useState(0);
-    const videoRef = useRef(null);
-    const captionText = (item.text || '').trim();
-    const isTextOnly = !item.mediaUrl || !(['image','video'].includes(item.mediaType));
-    const [captionExpanded, setCaptionExpanded] = useState(false);
-    const showMore = captionText.length > 160;
-    const [thumbUri, setThumbUri] = useState(null);
-  // Menú y reporte
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [reportModalVisible, setReportModalVisible] = useState(false);
-  const [reportReason, setReportReason] = useState('Contenido inapropiado');
-  const [reportText, setReportText] = useState('');
-
-    // Generar o recuperar miniatura del video para mostrar instantáneamente
-    useEffect(() => {
-      let cancelled = false;
-      const run = async () => {
-        if (item.mediaType !== 'video' || !item.mediaUrl) return;
-        const cached = thumbCacheRef.current.get(item.mediaUrl);
-        if (cached) {
-          if (!cancelled) setThumbUri(cached);
-          return;
-        }
-        try {
-          const { uri } = await VideoThumbnails.getThumbnailAsync(item.mediaUrl, { time: 1000 });
-          if (!cancelled) {
-            thumbCacheRef.current.set(item.mediaUrl, uri);
-            setThumbUri(uri);
-          }
-        } catch (_) {
-          // si falla, dejamos el placeholder por defecto
-        }
-      };
-      run();
-      return () => { cancelled = true; };
-    }, [item.mediaUrl, item.mediaType]);
-
-    // Prefetch del video del item actual para minimizar carga visible
-    useEffect(() => {
-      if (item.mediaType === 'video' && item.mediaUrl) {
-        prefetchVideo(item.mediaUrl);
-      }
-    }, [item.mediaType, item.mediaUrl]);
-
-    const renderRichText = (text) => {
-      const parts = [];
-      const regex = /(#[A-Za-z0-9_]+)|(@[A-Za-z0-9_\.]+)/g;
-      let lastIndex = 0; let m;
-      while ((m = regex.exec(text)) !== null) {
-        if (m.index > lastIndex) {
-          parts.push(<Text key={`t-${lastIndex}`}>{text.slice(lastIndex, m.index)}</Text>);
-        }
-        const token = m[0];
-        const isTag = token.startsWith('#');
-        parts.push(
-          <Text
-            key={`m-${m.index}`}
-            style={isTag ? styles.tagText : styles.mentionText}
-            onPress={() => Alert.alert(isTag ? 'Hashtag' : 'Mención', token)}
-          >
-            {token}
-          </Text>
-        );
-        lastIndex = regex.lastIndex;
-      }
-      if (lastIndex < text.length) parts.push(<Text key={`t-end`}>{text.slice(lastIndex)}</Text>);
-      return parts;
-    };
-
-    const handleLike = () => {
-      setLiked((p) => !p);
-      setLikeCount((c) => (liked ? Math.max(0, c - 1) : c + 1));
-    };
-
-    const handlePlaybackStatusUpdate = (s) => {
-      setStatus(s);
-      setIsPlaying(s.isPlaying);
-      setIsBuffering(s.isBuffering);
-      if (typeof s.durationMillis === 'number') setDurationMillis(s.durationMillis);
-      if (typeof s.positionMillis === 'number') setPositionMillis(s.positionMillis);
-      if (s.error) setHasError(true);
-      if (s.didJustFinish) {
-        videoRef.current?.setPositionAsync(0);
-        setIsPlaying(false);
-      }
-    };
-
-    // Pausar y resetear cuando salga de vista
-    useEffect(() => {
-      if (!isVisible && item.mediaType === 'video') {
-        videoRef.current?.pauseAsync();
-        videoRef.current?.setPositionAsync(0);
-        setIsPlaying(false);
-      }
-    }, [isVisible, item.mediaType]);
-
-    // Autoplay si visible y enfocado; reset al perder foco/visibilidad
-    useEffect(() => {
-      if (item.mediaType !== 'video') return;
-      if (isVisible && isScreenFocused) {
-        setIsMuted(false);
-        videoRef.current?.setIsMutedAsync(false);
-        videoRef.current?.playAsync();
-        setIsPlaying(true);
-      } else {
-        videoRef.current?.pauseAsync();
-        videoRef.current?.setPositionAsync(0);
-        setIsPlaying(false);
-      }
-    }, [isVisible, isScreenFocused, item.mediaType]);
-
-    // App en background
-    useEffect(() => {
-      const sub = AppState.addEventListener('change', (state) => {
-        if (state !== 'active') {
-          videoRef.current?.pauseAsync();
-          videoRef.current?.setPositionAsync(0);
-          setIsPlaying(false);
-        }
-      });
-      return () => sub.remove && sub.remove();
-    }, []);
-
-    useEffect(() => {
-      videoRef.current?.setIsMutedAsync(!!isMuted);
-    }, [isMuted]);
-
-    // Cleanup
-    useEffect(() => () => {
-      videoRef.current?.pauseAsync?.();
-      videoRef.current?.unloadAsync?.();
-    }, []);
-
-    return (
-      <>
-      <View style={[styles.feedCard, darkMode && { backgroundColor: '#171717' }]}>
-        {/* Header */}
-  <View style={[styles.postHeader, { zIndex: 200, elevation: 8 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.postAvatar} />
-            <View>
-              <Text style={[styles.postUser, darkMode && styles.postUserDark]}>{item.userName || 'Usuario'}</Text>
-              <Text style={[styles.postTime, darkMode && styles.postTimeDark]}>{formatRelativeTime(item.fecha)}</Text>
-            </View>
-          </View>
-          <View style={{ position: 'relative' }}>
-            <TouchableOpacity onPress={() => setMenuOpen((v) => !v)}>
-              <MaterialIcons name="more-vert" size={22} color={darkMode ? '#ddd' : '#444'} />
-            </TouchableOpacity>
-            {menuOpen && (
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 26,
-                  right: 0,
-                  backgroundColor: darkMode ? '#1f1f1f' : '#fff',
-                  borderRadius: 8,
-                  paddingVertical: 6,
-                  paddingHorizontal: 8,
-                  minWidth: 160,
-                  elevation: 20,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 6,
-                  borderWidth: darkMode ? 0 : 1,
-                  borderColor: '#e5e7eb',
-                  zIndex: 9999,
-                }}
-              >
-                <TouchableOpacity
-                  onPress={() => {
-                    setMenuOpen(false);
-                    setReportModalVisible(true);
-                  }}
-                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
-                >
-                  <MaterialIcons name="flag" size={18} color="#FF3B30" />
-                  <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Texto destacado si no hay media */}
-        {isTextOnly && !!captionText && (
-          <>
-            <Text style={styles.captionText} numberOfLines={captionExpanded ? 0 : 8}>
-              <Text style={styles.captionUser}>{(item.userName || 'usuario')}</Text> {renderRichText(captionText)}
-            </Text>
-            {showMore && (
-              <TouchableOpacity onPress={() => setCaptionExpanded((e) => !e)} activeOpacity={0.8}>
-                <Text style={[
-                  styles.showMoreText,
-                  darkMode && { color: '#9aa0b0' }
-                ]}>
-                  {captionExpanded ? 'Ver menos' : 'Ver más'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </>
-        )}
-
-        {/* Media (solo si hay imagen o video) */}
-        {item.mediaUrl && (item.mediaType === 'video' || item.mediaType === 'image') && (
-          <View style={[styles.mediaBox, darkMode && styles.mediaBoxDark]}>
-            {item.mediaType === 'video' ? (
-              <View style={{ width: '100%', height: '100%' }}>
-                <Video
-                  ref={videoRef}
-                  source={{ uri: item.mediaUrl }}
-                  style={{ width: '100%', height: '100%' }}
-                  useNativeControls={false}
-                  resizeMode="cover"
-                  onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                  onLoadStart={() => { setIsBuffering(true); setHasError(false); }}
-                  onLoad={() => { setIsBuffering(false); }}
-                  onReadyForDisplay={() => setIsBuffering(false)}
-                  shouldPlay={isVisible && isScreenFocused}
-                  isMuted={isMuted}
-                  isLooping={false}
-                  usePoster={!!thumbUri}
-                  posterSource={thumbUri ? { uri: thumbUri } : undefined}
-                />
-
-                {/* progress */}
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={(e) => {
-                    if (!durationMillis) return;
-                    const x = e.nativeEvent.locationX;
-                    const ratio = barWidth ? Math.min(1, Math.max(0, x / barWidth)) : 0;
-                    videoRef.current?.setPositionAsync(Math.floor(ratio * durationMillis));
-                  }}
-                  onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
-                  style={{ position: 'absolute', left: 12, right: 12, bottom: 12, height: 10, justifyContent: 'center' }}
-                >
-                  <View style={{ height: 4, backgroundColor: '#ffffff90', borderRadius: 2, overflow: 'hidden' }}>
-                    <View style={{ height: 4, width: `${durationMillis ? Math.min(100, Math.max(0, (positionMillis / durationMillis) * 100)) : 0}%`, backgroundColor: '#007AFF', borderRadius: 2 }} />
-                  </View>
-                </TouchableOpacity>
-
-                {/* mute */}
-                <TouchableOpacity
-                  onPress={() => setIsMuted((m) => !m)}
-                  style={{ position: 'absolute', right: 12, bottom: 28, backgroundColor: darkMode ? '#0008' : '#0008', padding: 8, borderRadius: 20 }}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name={isMuted ? 'volume-off' : 'volume-up'} size={22} color="#fff" />
-                </TouchableOpacity>
-               </View>
-             ) : (
-               <Image source={{ uri: item.mediaUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-             )}
-           </View>
-         )}
-
-        {/* Acciones */}
-        <View style={styles.actionsRow}>
-          <View style={styles.actionsLeft}>
-            <TouchableOpacity onPress={handleLike} activeOpacity={0.7} style={styles.actionBtnRow}>
-              <FontAwesome name={liked ? 'heart' : 'heart-o'} size={22} color={liked ? '#e74c3c' : (darkMode ? '#eee' : '#222')} />
-              <Text style={[styles.actionText, darkMode && styles.actionTextDark, liked && { color: '#e74c3c' }]}>Me gusta</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow}>
-              <FontAwesome name="comment-o" size={20} color={darkMode ? '#fff' : '#222'} />
-              <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Comentar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow}>
-              <MaterialIcons name="share" size={22} color={darkMode ? '#fff' : '#222'} />
-              <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Compartir</Text>
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity onPress={() => setSaved((s) => !s)}>
-            <MaterialIcons name={saved ? 'bookmark' : 'bookmark-border'} size={26} color={darkMode ? '#eee' : '#222'} />
-          </TouchableOpacity>
-        </View>
-        {/* Likes */}
-        <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{formatCount(Math.max(0, likeCount))} Me gusta</Text>
-        {/* Caption bajo media (si hay media) con ver más */}
-        {!isTextOnly && !!captionText && (
-          <>
-            <Text style={[styles.captionText, darkMode && styles.captionTextDark]} numberOfLines={captionExpanded ? 0 : 2}>
-              <Text style={styles.captionUser}>{(item.userName || 'usuario')}</Text> {renderRichText(captionText)}
-            </Text>
-            {showMore && (
-              <TouchableOpacity activeOpacity={0.8} onPress={() => setCaptionExpanded((e) => !e)}>
-                <Text style={[
-                  styles.showMoreText,
-                  darkMode && { color: '#9aa0b0' }
-                ]}>
-                  {captionExpanded ? 'Ver menos' : 'Ver más'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </>
-        )}
-
-        {/* Etiquetas */}
-        {item.etiquetas && item.etiquetas.length > 0 && (
-          <Etiquetas 
-            etiquetasSeleccionadas={item.etiquetas}
-            mostrarSoloSeleccionadas={true}
-            estiloPersonalizado={{
-              container: { paddingHorizontal: 12, paddingVertical: 8 },
-              etiqueta: { 
-                backgroundColor: 'transparent', // Sin fondo
-                borderRadius: 12,
-                marginRight: 6,
-                marginBottom: 4
-              },
-              texto: { 
-                fontSize: 12,
-                color: '#007AFF' // Azul para ambos modos
-              }
-            }}
-          />
-        )}
-
-        {/* Comentarios */}
-        {comments.length > 0 && (
-          <TouchableOpacity activeOpacity={0.8}>
-            <Text style={styles.viewCommentsText}>Ver los {comments.length} comentarios</Text>
-          </TouchableOpacity>
-        )}
-        {/* Tiempo */}
-        <Text style={[styles.postTimeFooter, darkMode && styles.postTimeFooterDark]}>{formatRelativeTime(item.fecha)}</Text>
-  </View>
-  {/* Modal de reporte */}
-      <Modal
-        visible={reportModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setReportModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPressOut={() => setReportModalVisible(false)}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={{
-              width: '96%',
-              maxWidth: 420,
-              backgroundColor: darkMode ? '#171717' : '#fff',
-              borderRadius: 16,
-              padding: 16,
-            }}
-          >
-            <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 12 }}>
-              Reportar publicación
-            </Text>
-            <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginBottom: 10 }}>
-              Indica el motivo del reporte.
-            </Text>
-            {['Contenido inapropiado','Violencia','Odio o acoso','Spam o engaño','Otro'].map((motivo) => (
-              <TouchableOpacity
-                key={motivo}
-                onPress={() => setReportReason(motivo)}
-                style={{
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 10,
-                  marginBottom: 8,
-                  borderWidth: 1,
-                  borderColor: reportReason === motivo ? '#FF3B30' : (darkMode ? '#333' : '#e5e7eb'),
-                  backgroundColor: reportReason === motivo ? (darkMode ? '#2a1b1b' : '#ffeceb') : 'transparent',
-                }}
-              >
-                <Text style={{ color: darkMode ? '#eee' : '#222', fontWeight: reportReason === motivo ? '700' : '500' }}>{motivo}</Text>
-              </TouchableOpacity>
-            ))}
-            <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
-            <TextInput
-              value={reportText}
-              onChangeText={setReportText}
-              placeholder="Describe brevemente el problema"
-              placeholderTextColor={darkMode ? '#888' : '#999'}
-              multiline
-              style={{
-                minHeight: 80,
-                borderWidth: 1,
-                borderColor: darkMode ? '#333' : '#e5e7eb',
-                borderRadius: 10,
-                padding: 10,
-                color: darkMode ? '#fff' : '#111',
-                backgroundColor: darkMode ? '#111' : '#fafafa',
-              }}
-            />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
-              <TouchableOpacity onPress={() => setReportModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
-                <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={async () => {
-                  try {
-                    const carnet = await AsyncStorage.getItem('carnet');
-                    if (!carnet) throw new Error('No se encontró el usuario actual');
-                    const payload = {
-                      publicacion_id: item.id,
-                      carnet_reporta: carnet,
-                      carnet_publica: item.userId || null,
-                      motivo: reportReason,
-                      detalle: reportText || null,
-                      created_at: new Date().toISOString(),
-                    };
-                    const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
-                    if (error) throw error;
-                    setReportModalVisible(false);
-                    setReportText('');
-                    setReportReason('Contenido inapropiado');
-                    Alert.alert('Gracias', 'Tu reporte ha sido enviado. Nuestro equipo lo revisará.');
-                  } catch (err) {
-                    Alert.alert('Error', err.message || 'No se pudo enviar el reporte. Verifica tu conexión.');
-                  }
-                }}
-                style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#FF3B30' }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Enviar reporte</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-  </Modal>
-  </>
-     );
-   };
-  // Memoizar FeedItem para reducir re-renders si props no cambian
-  const MemoFeedItem = useMemo(() => React.memo(FeedItem, (prev, next) => {
-    const a = prev.item, b = next.item;
-    return (
-      a?.id === b?.id &&
-      a?.mediaUrl === b?.mediaUrl &&
-      a?.mediaType === b?.mediaType &&
-      a?.text === b?.text &&
-      prev.isVisible === next.isVisible &&
-      prev.isScreenFocused === next.isScreenFocused
-    );
-  }), []);
+  // List rendering is now handled by the modular FeedList component.
 
   // Filtrar publicaciones por etiquetas seleccionadas
   const publicacionesFiltradas = useMemo(() => {
@@ -846,60 +233,8 @@ export default function HomeScreen({ onLogout, navigation }) {
 
   // Mostrar todas las publicaciones (con o sin media)
   const publicacionesValidas = publicacionesFiltradas;
-  // Trackear items visibles para lazy-load de videos
-  const [visibleIds, setVisibleIds] = useState(new Set());
-  const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 75 });
-  
-  // Referencias para mantener valores actuales
-  const postsRef = useRef(posts);
-  const prefetchVideoRef = useRef(prefetchVideo);
-  
-  // Actualizar referencias cuando cambien los valores
-  useEffect(() => {
-    postsRef.current = posts;
-  }, [posts]);
-  
-  useEffect(() => {
-    prefetchVideoRef.current = prefetchVideo;
-  }, [prefetchVideo]);
-  
-  // Crear una referencia estable para onViewableItemsChanged
-  const onViewableItemsChangedRef = useRef(({ viewableItems }) => {
-    const ids = new Set(viewableItems.map(v => v.item.id));
-    setVisibleIds(ids);
-    // Prefetch de videos cercanos (±2 posiciones alrededor de lo visible)
-    try {
-      const currentPosts = postsRef.current;
-      const currentPrefetchVideo = prefetchVideoRef.current;
-      
-      const visibleIndexes = viewableItems
-        .map(v => currentPosts.findIndex(p => p.id === v.item.id))
-        .filter(i => i >= 0);
-      const targets = new Set();
-      for (const idx of visibleIndexes) {
-        for (let d = -2; d <= 2; d++) {
-          const t = idx + d;
-          if (t >= 0 && t < currentPosts.length) targets.add(t);
-        }
-      }
-      for (const t of targets) {
-        const p = currentPosts[t];
-        if (p?.mediaType === 'video' && p?.mediaUrl) {
-          currentPrefetchVideo(p.mediaUrl);
-        }
-      }
-    } catch (_) {
-      // ignorar
-    }
-  });
+  // Feed viewability and rendering are encapsulated in FeedList now.
 
-  // Función estable que no cambia entre renders
-  const onViewableItemsChanged = onViewableItemsChangedRef.current;
-
-  // Memoizar renderItem y pasar isVisible a FeedItem
-  const renderFeedItem = useCallback(({ item }) => (
-    <MemoFeedItem item={item} isVisible={visibleIds.has(item.id)} isScreenFocused={isFocused} />
-  ), [visibleIds, isFocused, MemoFeedItem]);
   return (
     <LinearGradient
       colors={darkMode ? ['#232526', '#414345'] : ['#ffffff', '#f7fbff']}
@@ -937,107 +272,22 @@ export default function HomeScreen({ onLogout, navigation }) {
           </View>
         </View>
       </View>
-      <FlatList
-        data={publicacionesValidas}
-        renderItem={renderFeedItem}
-        keyExtractor={item => (item.id ? item.id.toString() : Math.random().toString())}
-        contentContainerStyle={[styles.feed, { paddingBottom: 80 }]}
-        showsVerticalScrollIndicator={false}
-        removeClippedSubviews={false}
-        initialNumToRender={4}
-        maxToRenderPerBatch={8}
-        windowSize={7}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfigRef.current}
-        ItemSeparatorComponent={() => (
-          <View style={[styles.separator, { backgroundColor: darkMode ? '#2b2b2b' : '#eaeaea' }]} />
-        )}
+      <FeedList
+        posts={publicacionesValidas}
+        isScreenFocused={isFocused}
       />
       {/* Botón flotante para publicar */}
       <TouchableOpacity style={[styles.fab, { backgroundColor: '#007AFF', shadowColor: '#007AFF' }]} onPress={() => setShowPublishModal(true)} activeOpacity={0.8}>
         <FontAwesome name="plus" size={28} color="#fff" />
       </TouchableOpacity>
       {/* Modal de publicación (full-screen) */}
-      <Modal visible={showPublishModal} animationType="slide" transparent={false}>
-        <View style={[styles.createModalContainer, darkMode && styles.createModalContainerDark]}>
-          {/* Header */}
-          <View style={styles.createHeader}>
-            <TouchableOpacity onPress={() => setShowPublishModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <MaterialIcons name="close" size={28} color={darkMode ? '#fff' : '#111'} />
-            </TouchableOpacity>
-            <Text style={[styles.createHeaderTitle, darkMode && styles.createHeaderTitleDark]}>Crear Publicación</Text>
-            <TouchableOpacity
-              disabled={uploading || (!newPost.trim() && !previewMedia)}
-              onPress={async () => { await handleAddPost(); }}
-            >
-              <Text style={[styles.createPublishAction, darkMode && styles.createPublishActionDark, (uploading || (!newPost.trim() && !previewMedia)) && styles.createPublishActionDisabled]}>
-                {uploading ? 'Publicando…' : 'Publicar'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-
-          {/* Preview grande */}
-          <View style={[styles.previewLargeContainer, darkMode && styles.previewLargeContainerDark]}>
-            {previewMedia ? (
-              mediaType === 'video' && typeof Video !== 'undefined' ? (
-                <Video source={{ uri: previewMedia.uri }} style={styles.previewLargeMedia} useNativeControls resizeMode="cover" />
-              ) : (
-                <Image source={{ uri: previewMedia.uri }} style={styles.previewLargeMedia} resizeMode="cover" />
-              )
-            ) : (
-              <View style={[styles.previewLargeMedia, { alignItems: 'center', justifyContent: 'center', backgroundColor: darkMode ? '#111' : '#f2f2f2' }]}> 
-                <MaterialIcons name="image" size={56} color={darkMode ? '#777' : '#c4c4c4'} />
-              </View>
-            )}
-            {previewMedia && (
-              <TouchableOpacity
-                onPress={() => { setPreviewMedia(null); setMediaType(null); }}
-                style={styles.removeMediaBtn}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialIcons name="close" size={22} color="#fff" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Botón – seleccionar de la galería */}
-          <TouchableOpacity
-            style={[styles.galleryPickerRow, darkMode && styles.galleryPickerRowDark]}
-            onPress={() => pickMedia('all')}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.galleryIconWrap, darkMode && styles.galleryIconWrapDark]}>
-              <MaterialIcons name="image" size={18} color={darkMode ? '#7cc0ff' : '#1976D2'} />
-            </View>
-            <Text style={[styles.galleryPickerText, darkMode && styles.galleryPickerTextDark]}>Seleccionar de la galería</Text>
-          </TouchableOpacity>
-
-          {/* Descripción */}
-          <TextInput
-            style={[styles.descriptionInput, darkMode && styles.descriptionInputDark]}
-            placeholder="Escribe una descripción..."
-            placeholderTextColor={darkMode ? '#7a8394' : '#9aa0a6'}
-            value={newPost}
-            onChangeText={setNewPost}
-            multiline
-          />
-
-          {/* Componente de Etiquetas */}
-          <Etiquetas 
-            etiquetasSeleccionadas={etiquetasSeleccionadas}
-            onEtiquetasChange={setEtiquetasSeleccionadas}
-            maxEtiquetas={5}
-            estiloPersonalizado={{
-              container: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 20 },
-              etiqueta: { borderRadius: 20 },
-              texto: { fontSize: 13 }
-            }}
-          />
-          </ScrollView>
-        </View>
-      </Modal>
+      {showPublishModal && (
+        <CreatePublicationModal
+          visible={showPublishModal}
+          onClose={() => setShowPublishModal(false)}
+          onPublished={() => { setShowPublishModal(false); fetchPostsFromDB(); }}
+        />
+      )}
 
       {/* Modal de Filtros por Etiquetas */}
       <Modal visible={mostrarFiltros} animationType="slide" transparent={true}>

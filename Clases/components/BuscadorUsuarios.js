@@ -12,8 +12,8 @@ import {
   Alert 
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from './ThemeContext';
-import { supabase } from '../Supabase/supabaseClient';
+import { useTheme } from '../contexts/ThemeContext';
+import { supabase } from '../../Supabase/supabaseClient';
 
 export default function BuscadorUsuarios({ 
   visible, 

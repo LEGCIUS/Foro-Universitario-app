@@ -10,7 +10,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { useNavigation } from '@react-navigation/native';
-import { useTheme } from '../ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function ProductoForm({ onProductoPublicado, onCancelar, producto, modo }) {
   const { darkMode } = useTheme();

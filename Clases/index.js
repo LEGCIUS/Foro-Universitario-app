@@ -1,6 +1,6 @@
 import { registerRootComponent } from 'expo';
 import App from './App';
-import { ThemeProvider } from './ThemeContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 function Main() {
   return (

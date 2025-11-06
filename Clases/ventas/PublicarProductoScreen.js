@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, Text } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import ProductoForm from './ProductoForm';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const PublicarProductoScreen = ({ navigation, route }) => {
   const insets = useSafeAreaInsets();

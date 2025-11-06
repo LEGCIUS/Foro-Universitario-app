@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, TextInput, FlatList, Modal, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from './ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 const ETIQUETAS_PREDEFINIDAS = [
   '#naturaleza', '#ciencia', '#tecnologia', '#arte', '#musica', 

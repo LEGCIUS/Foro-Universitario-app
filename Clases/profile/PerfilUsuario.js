@@ -5,11 +5,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
-import { supabase } from '../Supabase/supabaseClient';
+import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from './ThemeContext'; 
+import { useTheme } from '../contexts/ThemeContext'; 
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { Video } from 'expo-av';
 // import ImageViewing from 'react-native-image-viewing'; // Removido por problemas de compatibilidad

@@ -3,7 +3,7 @@ import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOp
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu }) {

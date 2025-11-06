@@ -2,15 +2,17 @@ import React, { useState, useRef } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal } from 'react-native';
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from './ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
 
-export default function Publications({ route, navigation }) {
+export default function PublicationsViewer({ route, navigation }) {
   const theme = useTheme?.();
   const themeDark = theme?.darkMode ?? false;
   const paramDark = route?.params?.darkMode;
   const darkMode = typeof paramDark === 'boolean' ? paramDark : themeDark;
+
+  const { posts, initialIndex = 0 } = route.params;
 
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [likes, setLikes] = useState(posts[initialIndex]?.likes || 0);
@@ -42,7 +44,6 @@ export default function Publications({ route, navigation }) {
 
   const renderItem = ({ item, index }) => (
     <View style={[styles.detailContainer, darkMode && styles.detailContainerDark]}>
-      {/* Header: avatar + username */}
       <View style={styles.headerRow}>
         <View style={[styles.avatarPlaceholder, darkMode && styles.avatarPlaceholderDark]}>
           <Text style={[styles.avatarLetter, darkMode && { color: '#e5e7eb' }]}>{(item.usuario_nombre || item.usuario || 'U').charAt(0).toUpperCase()}</Text>
@@ -51,24 +52,12 @@ export default function Publications({ route, navigation }) {
       </View>
       <View style={styles.mediaContainer}>
         {item.contenido === 'image' && item.archivo_url && (
-          <Image
-            source={{ uri: item.archivo_url }}
-            style={styles.feedMedia}
-            resizeMode="cover"
-          />
+          <Image source={{ uri: item.archivo_url }} style={styles.feedMedia} resizeMode="cover" />
         )}
         {item.contenido === 'video' && item.archivo_url && (
-          <Video
-            ref={ref => videoRefs.current[index] = ref}
-            source={{ uri: item.archivo_url }}
-            style={styles.feedMedia}
-            useNativeControls
-            resizeMode="cover"
-            isLooping
-          />
+          <Video ref={ref => videoRefs.current[index] = ref} source={{ uri: item.archivo_url }} style={styles.feedMedia} useNativeControls resizeMode="cover" isLooping />
         )}
       </View>
-      {/* Actions row (like, comment, share, bookmark) */}
       <View style={styles.actionsRow}>
         <View style={styles.leftActions}>
           <TouchableOpacity onPress={handleLike} style={styles.actionBtn}>
@@ -127,11 +116,7 @@ export default function Publications({ route, navigation }) {
 
   return (
     <View style={[styles.overlay, darkMode && styles.overlayDark]}>
-      {/* X fija arriba a la derecha */}
-      <TouchableOpacity
-        onPress={() => navigation.goBack()}
-        style={[styles.closeButton, darkMode && styles.closeButtonDark]}
-      >
+      <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.closeButton, darkMode && styles.closeButtonDark]}>
         <MaterialIcons name="close" size={32} color={darkMode ? '#fff' : '#FF3B30'} />
       </TouchableOpacity>
       <FlatList
@@ -145,11 +130,7 @@ export default function Publications({ route, navigation }) {
         onViewableItemsChanged={onViewableItemsChanged.current}
         viewabilityConfig={viewConfigRef.current}
         showsVerticalScrollIndicator={false}
-        getItemLayout={(_, index) => ({
-          length: height,
-          offset: height * index,
-          index,
-        })}
+        getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
         snapToInterval={height}
         decelerationRate="fast"
         initialNumToRender={1}
@@ -157,45 +138,21 @@ export default function Publications({ route, navigation }) {
         windowSize={3}
         removeClippedSubviews={true}
         onScrollToIndexFailed={({ index }) => {
-          setTimeout(() => {
-            flatListRef.current?.scrollToIndex({ index, animated: true });
-          }, 100);
+          setTimeout(() => { flatListRef.current?.scrollToIndex({ index, animated: true }); }, 100);
         }}
       />
 
-      {/* Modal para mostrar la publicación seleccionada */}
-      <Modal
-        visible={!!selectedPost}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedPost(null)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => setSelectedPost(null)} // Cierra al tocar fuera
-        >
+      <Modal visible={!!selectedPost} transparent animationType="fade" onRequestClose={() => setSelectedPost(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPressOut={() => setSelectedPost(null)}>
           <View style={styles.centeredView}>
             <View style={[styles.modalContent, darkMode && styles.modalContentDark]}>
-              {/* Aquí el contenido de la publicación */}
               {selectedPost?.contenido === 'image' && (
-                <Image
-                  source={{ uri: selectedPost.archivo_url }}
-                  style={styles.modalMedia}
-                  resizeMode="contain"
-                />
+                <Image source={{ uri: selectedPost.archivo_url }} style={styles.modalMedia} resizeMode="contain" />
               )}
               {selectedPost?.contenido === 'video' && (
-                <Video
-                  source={{ uri: selectedPost.archivo_url }}
-                  style={styles.modalMedia}
-                  useNativeControls
-                  resizeMode="contain"
-                  isLooping
-                />
+                <Video source={{ uri: selectedPost.archivo_url }} style={styles.modalMedia} useNativeControls resizeMode="contain" isLooping />
               )}
               <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>{selectedPost?.titulo}</Text>
-              {/* Likes, comentarios, etc. */}
             </View>
           </View>
         </TouchableOpacity>
@@ -205,82 +162,18 @@ export default function Publications({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: '#f7f9fc',
-  },
-  overlayDark: {
-    backgroundColor: '#0b0f14',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 20,
-    right: 18,
-    zIndex: 30,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    padding: 6,
-    borderRadius: 18,
-    elevation: 6,
-  },
-  closeButtonDark: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  detailContainer: {
-    width: width,
-    height: height,
-    justifyContent: 'flex-start',
-    alignItems: 'stretch',
-    paddingTop: 18,
-    paddingBottom: 18,
-    paddingHorizontal: 0, // sin padding horizontal para que el media ocupe todo el ancho
-    backgroundColor: '#f7f9fc',
-  },
-  detailContainerDark: {
-    backgroundColor: '#0b0f14',
-  },
-  mediaContainer: {
-    width: width,
-    aspectRatio: 1, // cuadrado como Instagram feed; usamos 'cover' para rellenar sin bandas
-    borderRadius: 0,
-    overflow: 'hidden',
-    marginBottom: 6,
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  media: {
-    width: width,
-    height: undefined,
-  },
-  feedMedia: {
-    width: width,
-    height: width, // cuadrado perfecto
-  },
-  modalMedia: {
-    width: 320,
-    height: 320,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  headerRow: {
-    width: '100%',
-    paddingHorizontal: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#e6eef8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  avatarPlaceholderDark: {
-    backgroundColor: '#1f2937',
-  },
+  overlay: { flex: 1, backgroundColor: '#f7f9fc' },
+  overlayDark: { backgroundColor: '#0b0f14' },
+  closeButton: { position: 'absolute', top: 20, right: 18, zIndex: 30, backgroundColor: 'rgba(255,255,255,0.9)', padding: 6, borderRadius: 18, elevation: 6 },
+  closeButtonDark: { backgroundColor: 'rgba(0,0,0,0.6)' },
+  detailContainer: { width, height, justifyContent: 'flex-start', alignItems: 'stretch', paddingTop: 18, paddingBottom: 18, paddingHorizontal: 0, backgroundColor: '#f7f9fc' },
+  detailContainerDark: { backgroundColor: '#0b0f14' },
+  mediaContainer: { width, aspectRatio: 1, borderRadius: 0, overflow: 'hidden', marginBottom: 6, backgroundColor: 'transparent', justifyContent: 'center', alignItems: 'center' },
+  feedMedia: { width, height: width },
+  modalMedia: { width: 320, height: 320, borderRadius: 12, marginBottom: 12 },
+  headerRow: { width: '100%', paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#e6eef8', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  avatarPlaceholderDark: { backgroundColor: '#1f2937' },
   avatarLetter: { fontWeight: '700', color: '#0b2545' },
   username: { fontSize: 16, fontWeight: '700', color: '#0b2545' },
   usernameDark: { color: '#e5e7eb' },
@@ -291,109 +184,20 @@ const styles = StyleSheet.create({
   captionTitleDark: { color: '#e5e7eb' },
   likesText: { color: '#222', paddingHorizontal: 10, marginBottom: 6 },
   likesTextDark: { color: '#e5e7eb' },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 8,
-    color: '#0b2545',
-    textAlign: 'left',
-    alignSelf: 'stretch',
-    marginLeft: 6,
-  },
-  likesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    alignSelf: 'stretch',
-    marginLeft: 6,
-  },
-  commentsTitle: {
-    fontWeight: '700',
-    marginBottom: 6,
-    color: '#233547',
-    alignSelf: 'flex-start',
-    marginLeft: 6,
-  },
-  commentsTitleDark: {
-    color: '#e5e7eb',
-  },
-  commentsList: {
-    maxHeight: 120,
-    marginBottom: 8,
-    alignSelf: 'stretch',
-    paddingHorizontal: 6,
-  },
-  commentInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    alignSelf: 'stretch',
-    paddingHorizontal: 6,
-  },
-  input: {
-    borderColor: '#e1e7ef',
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: '#fff',
-  },
-  inputDark: {
-    borderColor: '#333',
-    backgroundColor: '#111',
-  },
-  button: {
-    backgroundColor: '#007AFF',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    alignSelf: 'stretch',
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)', // Fondo semitransparente
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  centeredView: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 18,
-    width: '92%',
-    maxWidth: 420,
-    alignItems: 'center',
-    elevation: 10,
-  },
-  modalContentDark: {
-    backgroundColor: '#121212',
-  },
-  media: {
-    width: 320,
-    height: 320,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
-    color: '#0b2545',
-    textAlign: 'center',
-  },
-  modalTitleDark: {
-    color: '#e5e7eb',
-  },
+  title: { fontSize: 18, fontWeight: '800', marginBottom: 8, color: '#0b2545', textAlign: 'left', alignSelf: 'stretch', marginLeft: 6 },
+  likesRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, alignSelf: 'stretch', marginLeft: 6 },
+  commentsTitle: { fontWeight: '700', marginBottom: 6, color: '#233547', alignSelf: 'flex-start', marginLeft: 6 },
+  commentsTitleDark: { color: '#e5e7eb' },
+  commentsList: { maxHeight: 120, marginBottom: 8, alignSelf: 'stretch', paddingHorizontal: 6 },
+  commentInputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, alignSelf: 'stretch', paddingHorizontal: 6 },
+  input: { borderColor: '#e1e7ef', borderWidth: 1, borderRadius: 10, padding: 10, backgroundColor: '#fff' },
+  inputDark: { borderColor: '#333', backgroundColor: '#111' },
+  button: { backgroundColor: '#007AFF', borderRadius: 8, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', marginTop: 8, alignSelf: 'stretch' },
+  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
+  centeredView: { flex: 1, justifyContent: 'center', alignItems: 'center', width: '100%' },
+  modalContent: { backgroundColor: '#fff', borderRadius: 14, padding: 18, width: '92%', maxWidth: 420, alignItems: 'center', elevation: 10 },
+  modalContentDark: { backgroundColor: '#121212' },
+  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 8, color: '#0b2545', textAlign: 'center' },
+  modalTitleDark: { color: '#e5e7eb' },
 });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
-import SplashScreenCustom from './SplashScreenCustom';
+import SplashScreenCustom from './components/SplashScreenCustom';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -9,12 +9,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
-import PerfilUsuario from '../Clases/PerfilUsuario';
+import PerfilUsuario from './profile/PerfilUsuario';
 import SettingScreen from './screens/SettingScreen';
 import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
-import Publications from '../Clases/Publications';
-import { useTheme } from './ThemeContext'; 
+import PublicationsViewer from './publications/PublicationsViewer';
+import { useTheme } from './contexts/ThemeContext'; 
 import AdminScreen from './screens/AdminScreen';
 
 const Stack = createNativeStackNavigator();
@@ -118,12 +118,12 @@ export default function App() {
           <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} />
           <Stack.Screen
             name="PerfilUsuario"
-            component={require('./screens/PerfilUsuarioScreen').default}
+            component={require('./profile/PerfilUsuarioScreen').default}
             options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Publicaciones"
-            component={Publications}
+            component={PublicationsViewer}
             options={{ presentation: 'transparentModal', headerShown: false }}
           />
           <Stack.Screen

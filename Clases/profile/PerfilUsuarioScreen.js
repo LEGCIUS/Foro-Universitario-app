@@ -15,7 +15,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { useTheme } from '../ThemeContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
 
 const { width, height } = Dimensions.get('window');
@@ -52,19 +52,15 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
     totalMeGusta: 0,
   });
 
-  // Estados para control de video (mejorado para web/móvil)
+  // Estados para control de video
   const isFocused = useIsFocused();
-  const [visibleIds, setVisibleIds] = useState(new Set());
   const videoRefs = useRef(new Map());
-  const scrollViewRef = useRef(null);
-  const [scrollY, setScrollY] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
-  const [screenDimensions, setScreenDimensions] = useState({ width, height });
-  
-  // Refs para medidas reales de elementos
   const publicacionRefs = useRef(new Map());
-  const headerRef = useRef(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
+  const scrollViewRef = useRef(null);
+  const [visibleVideoIds, setVisibleVideoIds] = useState(new Set());
+  const [isMuted, setIsMuted] = useState(false);
+  const [scrollY, setScrollY] = useState(0);
+  const scrollTimer = useRef(null);
 
   const styles = createStyles(darkMode);
 
@@ -82,24 +78,26 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
   }, [usuarioCompleto?.carnet]);
 
   // Manejar focus de la pantalla para videos
-  // Pausar videos cuando se pierde el foco de la pantalla
   useEffect(() => {
     if (!isFocused) {
-      // Pausar todos los videos cuando se sale de la pantalla
+      // Pausar todos los videos cuando se pierde el foco
       videoRefs.current.forEach(async (videoRef) => {
         if (videoRef) {
           try {
             await videoRef.pauseAsync();
           } catch (error) {
-            // Error logging removido para limpiar consola
+            // Ignorar errores
           }
         }
       });
-      setVisibleIds(new Set()); // Limpiar videos visibles
+      setVisibleVideoIds(new Set());
+    } else {
+      // Cuando vuelve el foco, actualizar videos visibles inmediatamente
+      setTimeout(() => updateVisibleVideos(), 100); // Reducido de 300ms a 100ms
     }
   }, [isFocused]);
 
-  // Limpiar refs y timers cuando se desmonta el componente
+  // Limpiar refs cuando se desmonta el componente
   useEffect(() => {
     return () => {
       videoRefs.current.clear();
@@ -110,35 +108,92 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
     };
   }, []);
 
-  // Auto-play del primer video cuando se carga la pantalla (simplificado)
+  // Actualizar videos visibles al cargar publicaciones
   useEffect(() => {
     if (publicaciones.length > 0 && isFocused) {
-      // Buscar el primer video en la lista
-      const primerVideo = publicaciones.find(pub => 
-        pub.contenido === 'video' || 
-        pub.archivo_url?.includes('.mp4') || 
-        pub.archivo_url?.includes('.mov')
-      );
-      
-      if (primerVideo) {
-        // Delay más corto para mejor responsividad
-        const timer = setTimeout(() => {
-          setVisibleIds(new Set([primerVideo.id]));
-        }, 300);
-        
-        return () => clearTimeout(timer);
-      }
+      setTimeout(() => updateVisibleVideos(), 200); // Reducido de 500ms a 200ms
     }
   }, [publicaciones.length, isFocused]);
 
   // Detectar cambios en dimensiones de pantalla
   useEffect(() => {
     const subscription = Dimensions.addEventListener('change', ({ window }) => {
-      setScreenDimensions({ width: window.width, height: window.height });
+      // Reaccionar a cambios de orientación si es necesario
     });
 
     return () => subscription?.remove();
   }, []);
+
+  // Función para actualizar videos visibles basado en scroll
+  const updateVisibleVideos = useCallback(() => {
+    if (!publicaciones.length || !isFocused) return;
+    
+    const newVisibleIds = new Set();
+    let processed = 0;
+    const videosCount = publicaciones.filter(p => 
+      p.contenido === 'video' || 
+      p.archivo_url?.includes('.mp4') || 
+      p.archivo_url?.includes('.mov')
+    ).length;
+    
+    if (videosCount === 0) return;
+    
+    publicaciones.forEach((publicacion) => {
+      const esVideo = publicacion.contenido === 'video' || 
+                     publicacion.archivo_url?.includes('.mp4') || 
+                     publicacion.archivo_url?.includes('.mov');
+      
+      if (!esVideo) return;
+      
+      const publicacionRef = publicacionRefs.current.get(publicacion.id);
+      if (publicacionRef) {
+        publicacionRef.measure((x, y, width, height, pageX, pageY) => {
+          if (pageY !== undefined && pageY !== null) {
+            const videoTop = pageY;
+            const videoBottom = pageY + height;
+            const screenHeight = Dimensions.get('window').height;
+            
+            // Video es visible si al menos 60% está en pantalla
+            const visibleTop = Math.max(videoTop, 0);
+            const visibleBottom = Math.min(videoBottom, screenHeight);
+            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+            const percentVisible = visibleHeight / height;
+            
+            if (percentVisible >= 0.6) {
+              newVisibleIds.add(publicacion.id);
+            }
+          }
+          
+          processed++;
+          if (processed === videosCount) {
+            // Actualizar inmediatamente sin delay
+            setVisibleVideoIds(prev => {
+              const hasChanges = prev.size !== newVisibleIds.size || 
+                                [...newVisibleIds].some(id => !prev.has(id)) ||
+                                [...prev].some(id => !newVisibleIds.has(id));
+              return hasChanges ? newVisibleIds : prev;
+            });
+          }
+        });
+      } else {
+        processed++;
+      }
+    });
+  }, [publicaciones, isFocused]);
+
+  // Manejar scroll
+  const handleScroll = useCallback((event) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    setScrollY(currentScrollY);
+    
+    // Actualizar videos visibles con debounce reducido para mayor responsividad
+    if (scrollTimer.current) {
+      clearTimeout(scrollTimer.current);
+    }
+    scrollTimer.current = setTimeout(() => {
+      updateVisibleVideos();
+    }, 50); // Reducido de 150ms a 50ms
+  }, [updateVisibleVideos]);
 
   const cargarPerfilCompleto = async () => {
     try {
@@ -275,81 +330,6 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
     }
   };
 
-  // Función para actualizar videos visibles (mejorada para web/móvil)
-  const scrollTimer = useRef(null);
-  
-  const updateVisibleVideos = useCallback(() => {
-    if (!publicaciones.length) return;
-    
-    const newVisibleIds = new Set();
-    const { height: screenHeight } = screenDimensions;
-    
-    publicaciones.forEach((publicacion) => {
-      const esVideo = publicacion.contenido === 'video' || 
-                     publicacion.archivo_url?.includes('.mp4') || 
-                     publicacion.archivo_url?.includes('.mov');
-      
-      if (!esVideo) return;
-      
-      const publicacionRef = publicacionRefs.current.get(publicacion.id);
-      if (publicacionRef) {
-        // Usar medidas reales cuando están disponibles
-        publicacionRef.measure((x, y, width, height, pageX, pageY) => {
-          const videoTop = pageY - scrollY;
-          const videoBottom = videoTop + height;
-          
-          // Video es visible si está parcialmente en pantalla
-          const isVisible = videoTop < screenHeight && videoBottom > 0;
-          
-          if (isVisible) {
-            setVisibleIds(prev => new Set(prev).add(publicacion.id));
-          } else {
-            setVisibleIds(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(publicacion.id);
-              return newSet;
-            });
-          }
-        });
-      } else {
-        // Fallback usando estimación mejorada para web/móvil
-        const index = publicaciones.findIndex(p => p.id === publicacion.id);
-        const estimatedItemHeight = Platform.OS === 'web' ? 400 : 350; // Diferentes alturas para web/móvil
-        const estimatedHeaderHeight = headerHeight || (Platform.OS === 'web' ? 350 : 300);
-        
-        const estimatedTop = estimatedHeaderHeight + (index * estimatedItemHeight) - scrollY;
-        const estimatedBottom = estimatedTop + 200; // Altura del video
-        
-        const isVisible = estimatedTop < screenHeight && estimatedBottom > 0;
-        
-        if (isVisible) {
-          newVisibleIds.add(publicacion.id);
-        }
-      }
-    });
-
-    // Actualizar una sola vez al final si usamos fallback
-    if (newVisibleIds.size > 0) {
-      setVisibleIds(prev => {
-        const hasChanges = prev.size !== newVisibleIds.size || 
-                          [...prev].some(id => !newVisibleIds.has(id));
-        return hasChanges ? newVisibleIds : prev;
-      });
-    }
-  }, [publicaciones, scrollY, screenDimensions, headerHeight]);
-
-  // Manejar scroll optimizado para web/móvil
-  const handleScroll = useCallback((event) => {
-    const currentScrollY = event.nativeEvent.contentOffset.y;
-    setScrollY(currentScrollY);
-    
-    // Actualizar videos visibles con delay optimizado para cada plataforma
-    clearTimeout(scrollTimer.current);
-    scrollTimer.current = setTimeout(() => {
-      updateVisibleVideos();
-    }, Platform.OS === 'web' ? 150 : 100); // Delay ligeramente mayor en web
-  }, [updateVisibleVideos]);
-
   // Función helper para procesar etiquetas de manera segura
   const procesarEtiquetas = (etiquetas) => {
     if (!etiquetas) return [];
@@ -376,6 +356,7 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
                    publicacion.contenido === 'video' ||
                    publicacion.archivo_url?.includes('.mp4') ||
                    publicacion.archivo_url?.includes('.mov');
+    const isVisible = visibleVideoIds.has(publicacion.id);
 
     return (
     <View 
@@ -389,11 +370,11 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
         }
       }}
       onLayout={() => {
-        // Trigger re-evaluation of visible videos when layout changes
+        // Actualizar visibilidad inmediatamente cuando cambia el layout
         if (scrollTimer.current) {
           clearTimeout(scrollTimer.current);
         }
-        scrollTimer.current = setTimeout(updateVisibleVideos, 100);
+        scrollTimer.current = setTimeout(() => updateVisibleVideos(), 50);
       }}
     >
       <View style={styles.publicacionHeader}>
@@ -438,45 +419,28 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
                 style={styles.videoPublicacion}
                 useNativeControls={false}
                 resizeMode="cover"
-                shouldPlay={visibleIds.has(publicacion.id) && isFocused}
+                shouldPlay={isVisible && isFocused}
                 isMuted={isMuted}
                 isLooping={true}
-                onPlaybackStatusUpdate={(status) => {
-                  if (status.error) {
-                    // Error logging removido para limpiar consola
-                  }
-                }}
-                onLoad={() => {
-                  // Log removido para limpiar consola
-                }}
               />
               {/* Overlay para controles manuales */}
               <TouchableOpacity
                 style={styles.videoOverlay}
-                onPress={async () => {
-                  const videoRef = videoRefs.current.get(publicacion.id);
-                  if (videoRef) {
-                    try {
-                      const status = await videoRef.getStatusAsync();
-                      
-                      if (status.isPlaying) {
-                        await videoRef.pauseAsync();
-                        setVisibleIds(prev => {
-                          const newSet = new Set(prev);
-                          newSet.delete(publicacion.id);
-                          return newSet;
-                        });
-                      } else {
-                        await videoRef.playAsync();
-                        setVisibleIds(prev => new Set(prev).add(publicacion.id));
-                      }
-                    } catch (error) {
-                      // Error logging removido para limpiar consola
+                onPress={() => {
+                  setVisibleVideoIds(prev => {
+                    const newSet = new Set(prev);
+                    if (newSet.has(publicacion.id)) {
+                      newSet.delete(publicacion.id);
+                    } else {
+                      // Pausar otros videos y reproducir este
+                      newSet.clear();
+                      newSet.add(publicacion.id);
                     }
-                  }
+                    return newSet;
+                  });
                 }}
               >
-                {!visibleIds.has(publicacion.id) && (
+                {!isVisible && (
                   <View style={styles.playButton}>
                     <MaterialIcons 
                       name="play-arrow" 
@@ -545,17 +509,10 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
       onScroll={handleScroll}
-      scrollEventThrottle={100}
+      scrollEventThrottle={16}
     >
       {/* Header del perfil */}
-      <View 
-        style={styles.headerContainer}
-        ref={headerRef}
-        onLayout={(event) => {
-          const { height } = event.nativeEvent.layout;
-          setHeaderHeight(height);
-        }}
-      >
+      <View style={styles.headerContainer}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
