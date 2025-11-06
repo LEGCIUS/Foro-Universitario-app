@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Modal, TouchableWithoutFeedback, StatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
@@ -11,6 +11,11 @@ const SettingScreen = ({ onLogout, navigation }) => {
   const { darkMode, toggleTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Nuevo estado para el modal de placeholder
+  const [placeholderVisible, setPlaceholderVisible] = useState(false);
+  const [placeholderTitle, setPlaceholderTitle] = useState('');
+  const [placeholderSubtitle, setPlaceholderSubtitle] = useState('Funcionalidad no implementada aún.');
 
   useEffect(() => {
     let mounted = true;
@@ -76,8 +81,11 @@ const SettingScreen = ({ onLogout, navigation }) => {
   };
 
   const handlePlaceholder = (title) => {
-    Alert.alert(title, 'Funcionalidad no implementada aún.');
+    setPlaceholderTitle(title);
+    setPlaceholderSubtitle('Funcionalidad no implementada aún.');
+    setPlaceholderVisible(true);
   };
+
   // Item de lista con icono, título, y chevron
   const ListItem = ({ title, subtitle, icon, iconBg, iconColor, onPress, destructive }) => (
     <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={[styles.itemCard, { backgroundColor: darkMode ? '#1e1e1e' : '#fff', borderColor: darkMode ? '#2b2b2b' : '#ececec' }]}>
@@ -96,9 +104,38 @@ const SettingScreen = ({ onLogout, navigation }) => {
 
   return (
     <View style={[styles.container, { backgroundColor: darkMode ? '#121212' : '#f5f7fb', paddingTop: Math.max(12, insets.top + 8) }]}>
+      {/* Forzar estilo de la StatusBar según tema */}
+      <StatusBar
+        barStyle={darkMode ? 'light-content' : 'dark-content'}
+        backgroundColor={darkMode ? '#121212' : '#f5f7fb'}
+      />
+
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: darkMode ? '#fff' : '#0b2545' }]}>Configuraciones</Text>
       </View>
+
+      {/* Modal estilizado para "funcionalidad no implementada" */}
+      <Modal visible={placeholderVisible} transparent animationType="fade" onRequestClose={() => setPlaceholderVisible(false)}>
+        {/* Mantener StatusBar consistente mientras el modal está abierto */}
+        <StatusBar
+          barStyle={darkMode ? 'light-content' : 'dark-content'}
+          backgroundColor={darkMode ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.45)'}
+        />
+        <TouchableWithoutFeedback onPress={() => setPlaceholderVisible(false)}>
+          <View style={styles.placeholderOverlay}>
+            <TouchableWithoutFeedback onPress={() => { /* consume toque dentro */ }}>
+              <View style={[styles.placeholderBox, { backgroundColor: darkMode ? '#0f1720' : '#fff' }]}>
+                <Text style={[styles.placeholderTitle, { color: darkMode ? '#fff' : '#0b1720' }]} numberOfLines={2}>{placeholderTitle}</Text>
+                <Text style={[styles.placeholderText, { color: darkMode ? '#cbd5e1' : '#475569' }]}>{placeholderSubtitle}</Text>
+                <TouchableOpacity style={[styles.placeholderButton, { backgroundColor: '#007AFF' }]} onPress={() => setPlaceholderVisible(false)}>
+                  <Text style={styles.placeholderButtonText}>Entendido</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
         {isAdmin ? (
           <View style={styles.section}>
@@ -208,6 +245,47 @@ const styles = StyleSheet.create({
   },
   itemTitle: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
   itemSubtitle: { fontSize: 12 },
+
+  /* Estilos del modal placeholder */
+  placeholderOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  placeholderBox: {
+    width: '94%',
+    maxWidth: 420,
+    borderRadius: 16,
+    padding: 18,
+    alignItems: 'flex-start',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+  },
+  placeholderTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  placeholderText: {
+    fontSize: 14,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  placeholderButton: {
+    alignSelf: 'stretch',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  placeholderButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 });
 
 export default SettingScreen;

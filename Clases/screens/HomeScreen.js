@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { View, Text, Button, FlatList, TextInput, StyleSheet, TouchableOpacity, Platform, Modal, Dimensions, Animated } from 'react-native';
+import { View, Text, Button, FlatList, TextInput, StyleSheet, TouchableOpacity, Platform, Modal, Dimensions, Animated, TouchableWithoutFeedback, StatusBar } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import { supabase } from '../../Supabase/supabaseClient';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
@@ -29,9 +30,23 @@ import CreatePublicationModal from '../publications/CreatePublicationModal';
 
 export default function HomeScreen({ onLogout, navigation }) {
   const isFocused = useIsFocused();
-
-  // obtener modo oscuro
   const { darkMode } = useTheme();
+
+  // Guardar medidas del header tal como quedan en el primer render y no volver a recalcular
+  const insets = useSafeAreaInsets();
+  const initialHeaderCaptured = useRef(false);
+  const [fixedHeaderHeight, setFixedHeaderHeight] = useState(Platform.OS === 'android' ? 80 : 60);
+  const [fixedHeaderPaddingTop, setFixedHeaderPaddingTop] = useState(Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0));
+
+  useEffect(() => {
+    if (initialHeaderCaptured.current) return;
+    // Capturamos lo que el sistema nos da en el primer render y lo fijamos
+    const padTop = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : (insets.top || 0);
+    const base = Platform.OS === 'android' ? 80 : 60;
+    setFixedHeaderPaddingTop(padTop);
+    setFixedHeaderHeight(base); // si quieres ajustar la base inicial, cámbialo aquí
+    initialHeaderCaptured.current = true;
+  }, []);
 
   const [posts, setPosts] = useState([]);
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -237,32 +252,31 @@ export default function HomeScreen({ onLogout, navigation }) {
 
   return (
     <LinearGradient
-      colors={darkMode ? ['#232526', '#414345'] : ['#ffffff', '#f7fbff']}
+      colors={darkMode ? ['#111111ff', '#1d1e1fff'] : ['#ffffff', '#f7fbff']}
       style={{ flex: 1 }}
     >
-      <View style={[styles.header, { backgroundColor: darkMode ? 'transparent' : '#fff' }]}>
-        <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: darkMode ? '#fff' : '#000' }]}>Foro Universitario</Text>
+      {/* Reservar safe-area / status bar aquí — constante siempre */}
+      <View style={{ paddingTop: Math.max(10, insets.top + 4), backgroundColor: darkMode ? '#111' : '#fff' }}>
+        <View style={styles.header}>
+          {/* Título y botones mantienen la misma distribución inicial */}
+          <Text style={[styles.headerTitle, { color: '#000000ff' }]}>Foro Universitario</Text>
+
           <View style={styles.headerButtons}>
             <TouchableOpacity 
               style={styles.headerButton}
               onPress={() => setMostrarBuscador(true)}
             >
-              <MaterialIcons 
-                name="search" 
-                size={24} 
-                color={darkMode ? '#fff' : '#000'} 
-              />
+              <MaterialIcons name="search" size={24} color="#000000ff" />
             </TouchableOpacity>
+
             <TouchableOpacity 
-              style={[styles.filterButton, etiquetasFiltro.length > 0 && styles.filterButtonActive]}
+              style={[
+                styles.filterButton,
+                etiquetasFiltro.length > 0 && { backgroundColor: 'rgba(0,122,255,0.1)' }
+              ]}
               onPress={() => setMostrarFiltros(true)}
             >
-              <MaterialIcons 
-                name="filter-list" 
-                size={24} 
-                color={etiquetasFiltro.length > 0 ? '#007AFF' : (darkMode ? '#fff' : '#000')} 
-              />
+              <MaterialIcons name="filter-list" size={24} color={etiquetasFiltro.length > 0 ? '#007AFF' : '#000000ff'} />
               {etiquetasFiltro.length > 0 && (
                 <View style={styles.filterBadge}>
                   <Text style={styles.filterBadgeText}>{etiquetasFiltro.length}</Text>
@@ -290,49 +304,60 @@ export default function HomeScreen({ onLogout, navigation }) {
       )}
 
       {/* Modal de Filtros por Etiquetas */}
-      <Modal visible={mostrarFiltros} animationType="slide" transparent={true}>
-        <View style={styles.filterModalOverlay}>
-          <View style={[styles.filterModalContent, { backgroundColor: darkMode ? '#222' : '#fff' }]}>
-            <View style={styles.filterModalHeader}>
-              <Text style={[styles.filterModalTitle, { color: darkMode ? '#fff' : '#000' }]}>
-                Filtrar por Etiquetas
-              </Text>
-              <TouchableOpacity onPress={() => setMostrarFiltros(false)}>
-                <MaterialIcons name="close" size={24} color={darkMode ? '#fff' : '#000'} />
-              </TouchableOpacity>
-            </View>
+      <Modal
+        visible={mostrarFiltros}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setMostrarFiltros(false)}
+      >
+        {/* Tocar fuera cierra el modal */}
+        <TouchableWithoutFeedback onPress={() => setMostrarFiltros(false)}>
+          <View style={styles.filterModalOverlay}>
+            {/* Evitar que toques dentro propaguen y cierren */}
+            <TouchableWithoutFeedback onPress={() => { /* consume el toque dentro */ }}>
+              <View style={[styles.filterModalContent, { backgroundColor: darkMode ? '#222' : '#fff' }]}>
+                <View style={styles.filterModalHeader}>
+                  <Text style={[styles.filterModalTitle, { color: darkMode ? '#ffffffff' : '#000000ff' }]}>
+                    Filtrar por Etiquetas
+                  </Text>
+                  <TouchableOpacity onPress={() => setMostrarFiltros(false)}>
+                    <MaterialIcons name="close" size={24} color={darkMode ? '#ffffffff' : '#000000ff'} />
+                  </TouchableOpacity>
+                </View>
 
-            <Etiquetas 
-              etiquetasSeleccionadas={etiquetasFiltro}
-              onEtiquetasChange={setEtiquetasFiltro}
-              maxEtiquetas={10}
-              estiloPersonalizado={{
-                container: { paddingVertical: 0 },
-                etiqueta: { borderRadius: 20 },
-                texto: { fontSize: 14 }
-              }}
-            />
+                <Etiquetas 
+                  etiquetasSeleccionadas={etiquetasFiltro}
+                  onEtiquetasChange={setEtiquetasFiltro}
+                  maxEtiquetas={10}
+                  estiloPersonalizado={{
+                    container: { paddingVertical: 0 },
+                    etiqueta: { borderRadius: 20 },
+                    texto: { fontSize: 14 }
+                  }}
+                />
 
-            <View style={styles.filterModalButtons}>
-              <TouchableOpacity 
-                style={[styles.filterModalButton, styles.clearButton]}
-                onPress={() => {
-                  setEtiquetasFiltro([]);
-                  setMostrarFiltros(false);
-                }}
-              >
-                <Text style={styles.clearButtonText}>Limpiar Filtros</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.filterModalButton, styles.applyButton]}
-                onPress={() => setMostrarFiltros(false)}
-              >
-                <Text style={styles.applyButtonText}>Aplicar</Text>
-              </TouchableOpacity>
-            </View>
+                <View style={styles.filterModalButtons}>
+                  <TouchableOpacity 
+                    style={[styles.filterModalButton, styles.clearButton]}
+                    onPress={() => {
+                      setEtiquetasFiltro([]);
+                      setMostrarFiltros(false);
+                    }}
+                  >
+                    <Text style={styles.clearButtonText}>Limpiar Filtros</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.filterModalButton, styles.applyButton]}
+                    onPress={() => setMostrarFiltros(false)}
+                  >
+                    <Text style={styles.applyButtonText}>Aplicar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
 
       {/* Buscador de Usuarios */}
@@ -351,36 +376,27 @@ export default function HomeScreen({ onLogout, navigation }) {
 
 const styles = StyleSheet.create({
   header: {
-    padding: 16,
-    alignItems: 'center',
-    backgroundColor: '#f2f2f2',
-  },
-  title: {
-    fontSize: 18,
-    marginBottom: 8,
-  },
-  addPostContainer: {
     flexDirection: 'row',
-    padding: 8,
+    justifyContent: 'space-between', // título a la izquierda, botones a la derecha
     alignItems: 'center',
-    gap: 4,
-    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 4,
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'left', // asegurar alineación izquierda
+    // quitar flex:1 para que no ocupe todo el espacio
+  },
+  headerButtons: {
+    // quitar position: 'absolute' para que participe del layout natural
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
     padding: 8,
-    minHeight: 40,
-    maxHeight: 100,
-  },
-  button: {
-    backgroundColor: '#007bff',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 4,
-    marginLeft: 4,
+    borderRadius: 20,
   },
   mediaButton: {
     backgroundColor: '#28a745',
@@ -855,6 +871,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     width: '100%',
+    height: 48, // altura fija del contenido
+    paddingVertical: 4,
   },
   headerTitle: {
     fontSize: 20,
@@ -917,23 +935,25 @@ const styles = StyleSheet.create({
   filterModalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#000',
   },
   filterModalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
-    gap: 10,
   },
   filterModalButton: {
     flex: 1,
     paddingVertical: 12,
+    backgroundColor: '#f0f0f0',
     borderRadius: 8,
-    alignItems: 'center',
+    marginHorizontal: 5,
   },
   clearButton: {
     backgroundColor: '#f0f0f0',
     borderWidth: 1,
     borderColor: '#ddd',
+    alignItems: 'center',
   },
   clearButtonText: {
     color: '#666',
@@ -941,11 +961,10 @@ const styles = StyleSheet.create({
   },
   applyButton: {
     backgroundColor: '#007AFF',
+    alignItems: 'center',
   },
   applyButtonText: {
     color: '#fff',
     fontWeight: 'bold',
-  },
+  }
 });
-
-

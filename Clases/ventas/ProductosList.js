@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal } from 'react-native';
+import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal, TouchableWithoutFeedback } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -142,6 +142,11 @@ export default function ProductosList(props) {
   const [imagenIndex, setImagenIndex] = useState(0);
   const [menuVisible, setMenuVisible] = useState(false);
   const [viewerWidth, setViewerWidth] = useState(0);
+
+  // Estado para reportes (similar a FeedItem)
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState('Contenido inapropiado');
+  const [reportText, setReportText] = useState('');
 
   useEffect(() => {
     AsyncStorage.getItem('carnet').then(carnet => {
@@ -287,68 +292,157 @@ export default function ProductosList(props) {
         transparent={true}
         onRequestClose={handleCerrarModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: darkMode ? '#1f2937' : '#fff' }]}>
-            {productoSeleccionado && (
-              <>
-                <View style={{ alignItems: 'center', marginBottom: 12 }} onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}>
-                  {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
-                    <>
-                      <FlatList
-                        data={productoSeleccionado.foto_url}
-                        horizontal
-                        pagingEnabled
-                        keyExtractor={(uri, idx) => uri + idx}
-                        showsHorizontalScrollIndicator={false}
-                        onMomentumScrollEnd={(e) => {
-                          const w = e.nativeEvent.layoutMeasurement.width || viewerWidth || 1;
-                          const x = e.nativeEvent.contentOffset.x || 0;
-                          const idx = Math.round(x / w);
-                          setImagenIndex(idx);
-                        }}
-                        renderItem={({ item }) => (
-                          <Image
-                            source={{ uri: item }}
-                            style={{ width: viewerWidth, height: 230, borderRadius: 16 }}
-                            resizeMode="cover"
-                          />
-                        )}
-                      />
-                      <View style={styles.modalDotsRow}>
-                        {productoSeleccionado.foto_url.map((_, idx) => (
-                          <View key={idx} style={[styles.modalDot, idx === imagenIndex && styles.modalDotActive]} />
-                        ))}
-                      </View>
-                      <Text style={{ marginTop: 6, color: darkMode ? '#94a3b8' : '#64748b' }}>{imagenIndex + 1} / {productoSeleccionado.foto_url?.length || 1}</Text>
-                    </>
-                  ) : (
-                    <View style={styles.imagePlaceholder}>
-                      <Text style={{ color: '#bbb', fontSize: 32 }}>🖼️</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={[styles.nombre, { color: darkMode ? '#fff' : '#0f172a' }]}>{productoSeleccionado.nombre}</Text>
-                <Text style={[styles.precio, { color: '#0b6cf6' }]}>₡{productoSeleccionado.precio}</Text>
-                <Text style={[styles.descripcion, { color: darkMode ? '#cbd5e1' : '#334155' }]}>{productoSeleccionado.descripcion}</Text>
-                <Text style={[styles.vendedor, { color: darkMode ? '#cbd5e1' : '#475569' }]}>Vendedor: <Text style={{ color: darkMode ? '#fff' : '#0e141b', fontWeight: 'bold' }}>{productoSeleccionado.nombre_vendedor}</Text></Text>
+        {/* Tocar fuera cierra el modal */}
+        <TouchableWithoutFeedback onPress={handleCerrarModal}>
+          <View style={styles.modalOverlay}>
+            {/* Evitar que toques dentro propaguen y cierren */}
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.modalContent, { backgroundColor: darkMode ? '#1f2937' : '#fff' }]}>
+                {/* Botón de reportar en la esquina superior derecha */}
                 <TouchableOpacity
-                  style={[styles.closeButton, { backgroundColor: '#25D366', marginTop: 10 }]}
-                  onPress={() => {
-                    const num = (productoSeleccionado?.telefono || '').toString().replace(/\D/g, '');
-                    if (!num) return Alert.alert('Teléfono no disponible');
-                    const url = `https://wa.me/${num}?text=${encodeURIComponent(productoSeleccionado?.mensaje_whatsapp || 'Hola, estoy interesado.')}`;
-                    Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
-                  }}
+                  style={styles.modalReportButton}
+                  onPress={() => setReportModalVisible(true)}
                 >
-                  <Text style={styles.closeButtonText}>Contactar por WhatsApp</Text>
+                  <MaterialIcons name="flag" size={22} color="#FF3B30" />
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.closeButton, { backgroundColor: '#007AFF' }]} onPress={handleCerrarModal}>
-                  <Text style={styles.closeButtonText}>Cerrar</Text>
-                </TouchableOpacity>
-              </>
-            )}
+
+                {productoSeleccionado && (
+                  <>
+                    <View style={{ alignItems: 'center', marginBottom: 12 }} onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}>
+                      {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
+                        <>
+                          <FlatList
+                            data={productoSeleccionado.foto_url}
+                            horizontal
+                            pagingEnabled
+                            keyExtractor={(uri, idx) => uri + idx}
+                            showsHorizontalScrollIndicator={false}
+                            onMomentumScrollEnd={(e) => {
+                              const w = e.nativeEvent.layoutMeasurement.width || viewerWidth || 1;
+                              const x = e.nativeEvent.contentOffset.x || 0;
+                              const idx = Math.round(x / w);
+                              setImagenIndex(idx);
+                            }}
+                            renderItem={({ item }) => (
+                              <Image
+                                source={{ uri: item }}
+                                style={{ width: viewerWidth, height: 230, borderRadius: 16 }}
+                                resizeMode="cover"
+                              />
+                            )}
+                          />
+                          <View style={styles.modalDotsRow}>
+                            {productoSeleccionado.foto_url.map((_, idx) => (
+                              <View key={idx} style={[styles.modalDot, idx === imagenIndex && styles.modalDotActive]} />
+                            ))}
+                          </View>
+                          <Text style={{ marginTop: 6, color: darkMode ? '#94a3b8' : '#64748b' }}>{imagenIndex + 1} / {productoSeleccionado.foto_url?.length || 1}</Text>
+                        </>
+                      ) : (
+                        <View style={styles.imagePlaceholder}>
+                          <Text style={{ color: '#bbb', fontSize: 32 }}>🖼️</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.nombre, { color: darkMode ? '#fff' : '#0f172a' }]}>{productoSeleccionado.nombre}</Text>
+                    <Text style={[styles.precio, { color: '#0b6cf6' }]}>₡{productoSeleccionado.precio}</Text>
+                    <Text style={[styles.descripcion, { color: darkMode ? '#cbd5e1' : '#334155' }]}>{productoSeleccionado.descripcion}</Text>
+                    <Text style={[styles.vendedor, { color: darkMode ? '#cbd5e1' : '#475569' }]}>Vendedor: <Text style={{ color: darkMode ? '#fff' : '#0e141b', fontWeight: 'bold' }}>{productoSeleccionado.nombre_vendedor}</Text></Text>
+                    <TouchableOpacity
+                      style={[styles.closeButton, { backgroundColor: '#25D366', marginTop: 10 }]}
+                      onPress={() => {
+                        const num = (productoSeleccionado?.telefono || '').toString().replace(/\D/g, '');
+                        if (!num) return Alert.alert('Teléfono no disponible');
+                        const url = `https://wa.me/${num}?text=${encodeURIComponent(productoSeleccionado?.mensaje_whatsapp || 'Hola, estoy interesado.')}`;
+                        Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
+                      }}
+                    >
+                      <Text style={styles.closeButtonText}>Contactar por WhatsApp</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.closeButton, { backgroundColor: '#007AFF' }]} onPress={handleCerrarModal}>
+                      <Text style={styles.closeButtonText}>Cerrar</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+      {/* Modal de reporte (ahora como Modal nativo para quedar por encima) */}
+      <Modal
+        visible={reportModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        {/* Tocar el overlay cierra el modal de reporte */}
+        <TouchableWithoutFeedback onPress={() => setReportModalVisible(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+            {/* Evitar que toques dentro del cuadro propaguen y cierren */}
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={{ width: '96%', maxWidth: 420, backgroundColor: darkMode ? '#171717' : '#fff', borderRadius: 16, padding: 16 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 12 }}>Reportar producto</Text>
+                <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginBottom: 10 }}>Indica el motivo del reporte.</Text>
+                {['Contenido inapropiado', 'Producto fraudulento', 'Precio excesivo', 'Spam', 'Otro'].map((motivo) => (
+                  <TouchableOpacity
+                    key={motivo}
+                    onPress={() => setReportReason(motivo)}
+                    style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: reportReason === motivo ? '#FF3B30' : (darkMode ? '#333' : '#e5e7eb'), backgroundColor: reportReason === motivo ? (darkMode ? '#2a1b1b' : '#ffeceb') : 'transparent' }}
+                  >
+                    <Text style={{ color: darkMode ? '#eee' : '#222', fontWeight: reportReason === motivo ? '700' : '500' }}>{motivo}</Text>
+                  </TouchableOpacity>
+                ))}
+                <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
+                <View style={{ minHeight: 80, borderWidth: 1, borderColor: darkMode ? '#333' : '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: darkMode ? '#111' : '#fafafa' }}>
+                  <Text
+                    onPress={() => {}}
+                    style={{ color: darkMode ? '#fff' : '#111' }}
+                  >
+                    {reportText}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
+                  <TouchableOpacity onPress={() => setReportModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
+                    <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      try {
+                        const carnet = await AsyncStorage.getItem('carnet');
+                        if (!carnet) throw new Error('No se encontró el usuario actual');
+
+                        const payload = {
+                          tipo: 'producto',
+                          id_contenido: productoSeleccionado?.id || null,
+                          usuario_reportante: carnet,
+                          usuario_publica: productoSeleccionado?.usuario_carnet || null,
+                          motivo: reportReason,
+                          detalle: reportText || null,
+                          created_at: new Date().toISOString(),
+                        };
+
+                        const { error } = await supabase.from('reportes').insert([payload]);
+                        if (error) throw error;
+
+                        Alert.alert('Reporte enviado', 'Gracias. Revisaremos el reporte.');
+                        setReportModalVisible(false);
+                        setReportText('');
+                        setReportReason('Contenido inapropiado');
+                      } catch (err) {
+                        console.error('Error al enviar reporte:', err);
+                        Alert.alert('Error', 'No se pudo enviar el reporte. Intenta de nuevo.');
+                      }
+                    }}
+                    style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#FF3B30' }}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>Enviar reporte</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
       <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('PublicarProducto', { onProductoPublicado: handleProductoPublicado })} activeOpacity={0.85}>
         <Text style={styles.fabText}>＋</Text>
@@ -526,24 +620,33 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 8,
   },
-  fabText: {
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
     color: '#fff',
-    fontSize: 36,
-    fontWeight: 'bold',
-    marginTop: -2,
-    letterSpacing: 1,
+    textAlign: 'center',
+    flex: 1,
   },
-  ownerActions: { flexDirection: 'row', marginTop: 10 },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+  emptyContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 32,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#888',
+  },
+  modalOverlay: {
     zIndex: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    bottom: 0,
+    right: 0,
+    left: 0,
+    top: 0,
+    position: 'absolute',
   },
   modalContent: {
     borderRadius: 16,
@@ -552,34 +655,55 @@ const styles = StyleSheet.create({
     maxWidth: 560,
     elevation: 8,
   },
-  horaVenta: {
-    fontSize: 14,
-    marginTop: 2,
+  modalReportButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 8,
+    zIndex: 30,
   },
   closeButton: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
     marginTop: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+    padding: 10,
+    backgroundColor: '#007AFF',
   },
   closeButtonText: {
+    marginTop: 2,
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  horaVenta: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  ownerActions: {
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+  modalDotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  modalDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#cbd5e1',
+    marginHorizontal: 3,
+  },
+  modalDotActive: {
+    backgroundColor: '#007AFF',
+  },
+  fabText: {
+    fontSize: 28,
+    lineHeight: 28,
     color: '#fff',
     fontWeight: 'bold',
   },
-  modalDotsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  modalDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#cbd5e1', marginHorizontal: 3 },
-  modalDotActive: { backgroundColor: '#007AFF' },
-  emptyText: { fontSize: 16, color: '#888' },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  title: { 
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginLeft: 40,
-  },
-  // priceBadge removido del diseño (se conserva referencia por si se desea reusar)
-  // priceBadge: { position: 'absolute', top: 6, left: 6, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 },
-  // priceBadgeText: { color: '#fff', fontWeight: '800', fontSize: 12 },
-  categoryChip: { position: 'absolute', bottom: 6, left: 6, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1 },
 });
