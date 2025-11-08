@@ -60,13 +60,39 @@ export default function AdminScreen({ navigation }) {
   const fetchReports = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1) Reportes de publicaciones
+      const { data: pubReports, error: pubErr } = await supabase
         .from('reportes_publicaciones')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(200);
-      if (error) throw error;
-      setReports(data || []);
+      if (pubErr) throw pubErr;
+
+      const normalizedPub = (pubReports || []).map(r => ({
+        ...r,
+        tipo_reporte: 'publicacion',
+        motivo_original: r.motivo,
+        tabla_origen: 'reportes_publicaciones',
+      }));
+
+      // 2) Reportes de ventas/productos
+      const { data: prodReports, error: prodErr } = await supabase
+        .from('reportes_ventas')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (prodErr && prodErr.code !== 'PGRST116') throw prodErr; // tabla podría no existir aún
+
+      const normalizedProd = (prodReports || []).map(r => ({
+        ...r,
+        tipo_reporte: 'producto',
+        motivo_original: r.motivo,
+        tabla_origen: 'reportes_ventas',
+      }));
+
+      // Unificar y ordenar por fecha
+      const unified = [...normalizedPub, ...normalizedProd].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setReports(unified);
     } catch (err) {
       Alert.alert('Error', err.message || 'No se pudo cargar los reportes');
     } finally {
@@ -123,21 +149,77 @@ export default function AdminScreen({ navigation }) {
     }
   };
 
+  // Ver producto reportado
+  const viewReportedProduct = async (rep) => {
+    try {
+      const productId = rep.producto_id || rep.publicacion_id;
+      if (!productId) {
+        Alert.alert('Sin producto', 'El reporte no tiene un producto asociado.');
+        return;
+      }
+      // Buscar el producto por id
+      const { data: prod, error: prodErr } = await supabase
+        .from('productos')
+        .select('*')
+        .eq('id', productId)
+        .maybeSingle();
+      if (prodErr) throw prodErr;
+      if (!prod) {
+        Alert.alert('No encontrado', 'El producto ya no existe.');
+        return;
+      }
+
+      // Navigate to Ventas tab and show product details
+      // Since we can't directly control ProductosList modal, show an alert with product info
+      Alert.alert(
+        `Producto: ${prod.titulo || 'Sin título'}`,
+        `Precio: $${prod.precio || 0}\nDescripción: ${prod.descripcion || 'N/A'}\nUsuario: ${prod.usuario_carnet || 'N/A'}`,
+        [
+          { text: 'OK' },
+          { 
+            text: 'Ver en Ventas', 
+            onPress: () => navigation.navigate('MainTabs', { screen: 'Ventas' })
+          }
+        ]
+      );
+    } catch (err) {
+      Alert.alert('Error', err.message || 'No se pudo abrir el producto.');
+    }
+  };
+
   const openDeleteFlow = async (report) => {
     try {
-      // Pre-cargar publicación y autor para verificación
+      const isProducto = report.tipo_reporte === 'producto';
+      // Pre-cargar publicación/producto y autor para verificación
       let publication = null;
       let author = null;
-      if (report.publicacion_id) {
-        const { data: pub, error: pubErr } = await supabase
-          .from('publicaciones')
-          .select('id, archivo_url, carnet_usuario, titulo')
-          .eq('id', report.publicacion_id)
-          .maybeSingle();
-        if (pubErr) console.log('openDeleteFlow: error buscando publicación', pubErr);
-        publication = pub || null;
+
+      if (isProducto) {
+        // Fetch product
+        const productId = report.producto_id || report.publicacion_id || report.id_contenido;
+        if (productId) {
+          const { data: prod, error: prodErr } = await supabase
+            .from('productos')
+            .select('id, foto_url, usuario_carnet, titulo')
+            .eq('id', productId)
+            .maybeSingle();
+          if (prodErr) console.log('openDeleteFlow: error buscando producto', prodErr);
+          publication = prod ? { ...prod, tipo: 'producto' } : null;
+        }
+      } else {
+        // Fetch publication
+        if (report.publicacion_id) {
+          const { data: pub, error: pubErr } = await supabase
+            .from('publicaciones')
+            .select('id, archivo_url, carnet_usuario, titulo')
+            .eq('id', report.publicacion_id)
+            .maybeSingle();
+          if (pubErr) console.log('openDeleteFlow: error buscando publicación', pubErr);
+          publication = pub ? { ...pub, tipo: 'publicacion' } : null;
+        }
       }
-      const carnetAutor = report.carnet_publica || publication?.carnet_usuario || null;
+
+      const carnetAutor = report.carnet_publica || report.usuario_publica || publication?.carnet_usuario || publication?.usuario_carnet || null;
       if (carnetAutor) {
         const { data: usr, error: usrErr } = await supabase
           .from('usuarios')
@@ -193,72 +275,86 @@ export default function AdminScreen({ navigation }) {
     try {
       setDeleting(true);
       const adminCarnet = await AsyncStorage.getItem('carnet');
-      // Asegurar que tenemos la publicación y el autor
+      const esProducto = target.publication?.tipo === 'producto' || target.report?.tipo_reporte === 'producto';
+      
+      // Asegurar que tenemos la publicación/producto y el autor
       let publication = target.publication;
-      if (!publication && target.report?.publicacion_id) {
-        const { data: pub, error: pubErr } = await supabase
-          .from('publicaciones')
-          .select('id, archivo_url, carnet_usuario, titulo')
-          .eq('id', target.report.publicacion_id)
-          .maybeSingle();
-        if (pubErr) console.log('confirmDeletePublication: error buscando publicación', pubErr);
-        publication = pub || null;
-      }
-      if (!publication) throw new Error('No se encontró la publicación.');
-      // 1) Eliminar archivo del storage
-      const storagePath = extractMultimediaPath(publication.archivo_url);
-      if (storagePath) {
-        try { await supabase.storage.from('multimedia').remove([storagePath]); } catch (e) { console.log('Error al eliminar del storage', e); }
-      }
-      // 2) Eliminar la fila en publicaciones (intentar RPC con privilegios; fallback a delete directo)
-      let deletedOk = false;
-      try {
-        const delRes = await supabase.rpc('admin_delete_publication', {
-          pub_id: publication.id,
-          admin_carnet: adminCarnet || null,
-        });
-        if (!delRes.error) {
-          deletedOk = true;
-        } else {
-          console.log('RPC admin_delete_publication error:', delRes.error);
+      if (!publication) {
+        const tableName = esProducto ? 'productos' : 'publicaciones';
+        const lookupId = esProducto ? (target.report?.producto_id || target.report?.publicacion_id) : target.report?.publicacion_id;
+        if (lookupId) {
+          const { data: item, error: itemErr } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('id', lookupId)
+            .maybeSingle();
+          if (itemErr) console.log(`confirmDeletePublication: error buscando ${tableName}`, itemErr);
+          publication = item ? { ...item, tipo: esProducto ? 'producto' : 'publicacion' } : null;
         }
-      } catch (e) {
-        console.log('RPC admin_delete_publication exception:', e);
       }
-      if (!deletedOk) {
-        const { error: delErr } = await supabase.from('publicaciones').delete().eq('id', publication.id);
-        if (delErr) throw delErr;
+      if (!publication) throw new Error(`No se encontró ${esProducto ? 'el producto' : 'la publicación'}.`);
+      
+      // 1) Eliminar archivo(s) del storage (si aplica)
+      const fileUrl = publication.archivo_url || publication.foto_url;
+      if (fileUrl) {
+        const bucket = esProducto ? 'fotos-productos' : 'multimedia';
+        // foto_url puede ser un array de URLs (productos) o una string
+        const urls = Array.isArray(fileUrl) ? fileUrl : [fileUrl];
+        for (const url of urls) {
+          const storagePath = extractMultimediaPath(url);
+          if (storagePath) {
+            try { 
+              await supabase.storage.from(bucket).remove([storagePath]); 
+            } catch (e) { 
+              console.log('Error al eliminar del storage', e); 
+            }
+          }
+        }
       }
+      
+      // 2) Eliminar la fila en productos/publicaciones
+      const tableName = esProducto ? 'productos' : 'publicaciones';
+      const { error: delErr } = await supabase.from(tableName).delete().eq('id', publication.id);
+      if (delErr) throw delErr;
 
       // 3) Insertar auditoría (solo si la tabla existe - verificamos con head)
+      const carnetUsuario = esProducto 
+        ? (publication.usuario_carnet || target.report?.carnet_publica) 
+        : (publication.carnet_usuario || target.report?.carnet_publica);
       const auditPayload = { 
         publicacion_id: publication.id,
         carnet_admin: adminCarnet || null,
-        carnet_usuario: publication.carnet_usuario || target.report?.carnet_publica || null,
+        carnet_usuario: carnetUsuario || null,
         motivo: deleteReason,
         detalle: deleteDetails,
         base_reglamentaria: deleteRegBasis || null,
         enlace: deleteLink || null,
+        // tipo_contenido removido - columna no existe en la tabla
         created_at: new Date().toISOString(),
       };
-      const { error: auditCheckErr } = await supabase
-        .from('auditoria_eliminaciones')
-        .select('id', { count: 'exact', head: true })
-        .limit(1);
-      if (!auditCheckErr || auditCheckErr.code !== 'PGRST116') {
-        // Tabla existe o error no es "tabla no encontrada"
-        try { await supabase.from('auditoria_eliminaciones').insert([auditPayload]); } catch (_) {}
+      // Intentar insertar auditoría - si falla, continuar de todas formas
+      try {
+        const { error: auditErr } = await supabase
+          .from('auditoria_eliminaciones')
+          .insert([auditPayload]);
+        if (auditErr) {
+          console.log('⚠️ No se pudo guardar auditoría:', auditErr.message);
+        }
+      } catch (e) {
+        console.log('⚠️ Error en auditoría (continuando):', e.message);
       }
 
       // 4) Notificar al usuario en la app (si existe la tabla notificaciones)
-      const message = `Una de tus publicaciones fue eliminada por un administrador. Motivo: ${deleteReason}.`;
+      const contentType = esProducto ? 'producto' : 'publicación';
+      const message = `Tu ${contentType} fue ${esProducto ? 'eliminado' : 'eliminada'} por un administrador. Motivo: ${deleteReason}.`;
       const notifPayload = { 
-        carnet: publication.carnet_usuario || target.report?.carnet_publica || null,
-        tipo: 'publicacion_eliminada',
-        titulo: 'Tu publicación fue eliminada',
+        carnet: carnetUsuario,
+        tipo: esProducto ? 'producto_eliminado' : 'publicacion_eliminada',
+        titulo: `Tu ${contentType} fue ${esProducto ? 'eliminado' : 'eliminada'}`,
         mensaje: message,
         data: {
-          publicacion_id: publication.id,
+          content_id: publication.id,
+          tipo_contenido: esProducto ? 'producto' : 'publicacion',
           motivo: deleteReason,
           detalle: deleteDetails,
           base_reglamentaria: deleteRegBasis || null,
@@ -273,38 +369,56 @@ export default function AdminScreen({ navigation }) {
         .select('id', { count: 'exact', head: true })
         .limit(1);
       if (!notifCheckErr || notifCheckErr.code !== 'PGRST116') {
-        try { await supabase.from('notificaciones').insert([notifPayload]); } catch (_) {}
+        try { 
+          await supabase.from('notificaciones').insert([notifPayload]); 
+          console.log('Notificación insertada para carnet:', carnetUsuario);
+        } catch (e) { 
+          console.log('Error al insertar notificación:', e); 
+        }
       }
 
-      // 5) Intentar enviar correo via RPC (solo si la función existe)
-      try {
-        const { data: userRow } = await supabase
-          .from('usuarios')
-          .select('correo, nombre, apellido')
-          .eq('carnet', publication.carnet_usuario)
-          .maybeSingle();
-        if (userRow?.correo) {
-          // Llamar RPC; registrar errores para diagnóstico
-          const rpcRes = await supabase.rpc('send_publication_deletion_email', {
-            to_email: userRow.correo,
-            subject: 'Tu publicación fue eliminada',
-            motivo: deleteReason,
-            detalle: deleteDetails,
-            base_reglamentaria: deleteRegBasis || null,
-            enlace: deleteLink || null,
-            titulo_publicacion: publication.titulo || '',
-          });
-          if (rpcRes.error) {
-            console.log('RPC send_publication_deletion_email error:', rpcRes.error);
-            // Notificar al admin pero no bloquear el flujo de eliminación
-            try { Alert.alert('Aviso', 'No se pudo enviar el correo. Revisa logs de Edge Function y secretos.'); } catch {}
+      // 5) Enviar correo de notificación al usuario vía Edge Function
+      if (carnetUsuario) {
+        try {
+          const { data: userRow } = await supabase
+            .from('usuarios')
+            .select('correo, nombre, apellido')
+            .eq('carnet', carnetUsuario)
+            .maybeSingle();
+
+          if (userRow?.correo) {
+            console.log('📧 Enviando correo a:', userRow.correo);
+            
+            const { data: emailRes, error: emailErr } = await supabase.functions.invoke('send-deletion-email', {
+              body: {
+                to_email: userRow.correo,
+                user_name: userRow.nombre || 'Usuario',
+                content_type: contentType,
+                content_title: publication.titulo || publication.nombre || '(sin título)',
+                motivo: deleteReason,
+                detalle: deleteDetails,
+                base_reglamentaria: deleteRegBasis || null,
+                enlace: deleteLink || null,
+              }
+            });
+            
+            if (emailErr) {
+              console.warn('⚠️ Error al enviar correo:', emailErr);
+            } else {
+              console.log('✅ Correo enviado:', emailRes);
+            }
           }
+        } catch (e) {
+          console.warn('⚠️ Error al enviar correo:', e.message);
         }
-      } catch (_) { /* RPC opcional */ }
+      }
 
       // 6) Actualizar UI: quitar reportes relacionados y cerrar modal
-      const pubId = publication.id;
-      setReports((prev) => prev.filter(r => r.publicacion_id !== pubId));
+      const contentId = publication.id;
+      setReports((prev) => prev.filter(r => {
+        const rContentId = r.publicacion_id || r.producto_id || r.id_contenido;
+        return rContentId !== contentId;
+      }));
       setShowDeleteModal(false);
       setTarget(null);
       setDeleteDetails('');
@@ -313,7 +427,7 @@ export default function AdminScreen({ navigation }) {
       setDeleteLink('');
       setShowDeleteModal(false);
       setDeleting(false);
-      Alert.alert('Eliminada', 'Publicación eliminada y usuario notificado.');
+      Alert.alert('Eliminada', `${esProducto ? 'Producto' : 'Publicación'} eliminado y usuario notificado.`);
     } catch (err) {
       console.log('confirmDeletePublication error:', err);
       setDeleting(false);
@@ -321,60 +435,81 @@ export default function AdminScreen({ navigation }) {
     }
   };
 
-  const renderItem = ({ item }) => (
-    <View style={[styles.card, item.estado === 'resuelto' && { opacity: 0.6 }]}> 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={styles.title}>Publicación #{item.publicacion_id}</Text>
-        {/* Estado removido para evitar el círculo gris solicitado */}
-      </View>
-      <Text style={styles.text}>Reportado por: <Text style={styles.bold}>{item.carnet_reporta || 'desconocido'}</Text></Text>
-      {item.carnet_publica ? (
-        <Text style={styles.text}>Autor: <Text style={styles.bold}>{item.carnet_publica}</Text></Text>
-      ) : null}
-      <Text style={styles.text}>Motivo: <Text style={styles.bold}>{item.motivo}</Text></Text>
-      {item.detalle ? (
-        <Text style={styles.text}>Detalle: <Text style={styles.mono}>{item.detalle}</Text></Text>
-      ) : null}
-      <Text style={[styles.text, { marginTop: 4 }]}>Fecha: {new Date(item.created_at).toLocaleString()}</Text>
+  const renderItem = ({ item }) => {
+    const isProducto = item.tipo_reporte === 'producto';
+    const contentId = isProducto ? (item.producto_id || item.publicacion_id) : item.publicacion_id;
+    const reportante = item.carnet_reporta || item.usuario_reportante || 'desconocido';
+    const autor = item.carnet_publica || item.usuario_publica || null;
+    const motivoMostrar = item.motivo_original || item.motivo;
 
-      {/* Acciones con mejor jerarquía visual: primaria full-width y dos secundarias lado a lado */}
-      <View style={styles.actionsColumn}>
-        <TouchableOpacity
-          onPress={() => viewReportedPublication(item)}
-          style={[styles.btn, styles.btnFull, { backgroundColor: '#2563EB' }]}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.btnText} numberOfLines={1}>Ver publicación</Text>
-        </TouchableOpacity>
+    return (
+      <View style={[styles.card, item.estado === 'resuelto' && { opacity: 0.6 }]}> 
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={styles.title}>
+            {isProducto ? `Producto #${contentId}` : `Publicación #${contentId}`}
+          </Text>
+          {/* Estado removido para evitar el círculo gris solicitado */}
+        </View>
+        <Text style={styles.text}>Reportado por: <Text style={styles.bold}>{reportante}</Text></Text>
+        {autor ? (
+          <Text style={styles.text}>Autor: <Text style={styles.bold}>{autor}</Text></Text>
+        ) : null}
+        <Text style={styles.text}>Motivo: <Text style={styles.bold}>{motivoMostrar}</Text></Text>
+        {item.detalle ? (
+          <Text style={styles.text}>Detalle: <Text style={styles.mono}>{item.detalle}</Text></Text>
+        ) : null}
+        <Text style={[styles.text, { marginTop: 4 }]}>Fecha: {new Date(item.created_at).toLocaleString()}</Text>
 
-        <View style={styles.rowBetween}>
+        {/* Acciones con mejor jerarquía visual: primaria full-width y dos secundarias lado a lado */}
+        <View style={styles.actionsColumn}>
           <TouchableOpacity
-            onPress={() => openDeleteFlow(item)}
-            style={[styles.btn, styles.btnHalf, { backgroundColor: '#DC2626' }]}
-            activeOpacity={0.9}
-          >
-            <Text style={styles.btnText} numberOfLines={1}>Eliminar publicación</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={async () => {
-              try {
-                const { error } = await supabase.from('reportes_publicaciones').delete().eq('id', item.id);
-                if (error) throw error;
-                setReports((prev) => prev.filter(r => r.id !== item.id));
-              } catch (err) {
-                Alert.alert('Error', err.message || 'No se pudo eliminar');
+            onPress={() => {
+              if (isProducto) {
+                viewReportedProduct(item);
+              } else {
+                viewReportedPublication(item);
               }
             }}
-            style={[styles.btn, styles.btnHalf, { backgroundColor: '#EF4444' }]}
+            style={[styles.btn, styles.btnFull, { backgroundColor: '#2563EB' }]}
             activeOpacity={0.9}
           >
-            <Text style={styles.btnText} numberOfLines={1}>Eliminar reporte</Text>
+            <Text style={styles.btnText} numberOfLines={1}>
+              {isProducto ? 'Ver producto' : 'Ver publicación'}
+            </Text>
           </TouchableOpacity>
+
+          <View style={styles.rowBetween}>
+            <TouchableOpacity
+              onPress={() => openDeleteFlow(item)}
+              style={[styles.btn, styles.btnHalf, { backgroundColor: '#DC2626' }]}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnText} numberOfLines={1}>
+                {isProducto ? 'Eliminar producto' : 'Eliminar publicación'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  const table = item.tabla_origen || (isProducto ? 'reportes_ventas' : 'reportes_publicaciones');
+                  const { error } = await supabase.from(table).delete().eq('id', item.id);
+                  if (error) throw error;
+                  setReports((prev) => prev.filter(r => r.id !== item.id));
+                } catch (err) {
+                  Alert.alert('Error', err.message || 'No se pudo eliminar');
+                }
+              }}
+              style={[styles.btn, styles.btnHalf, { backgroundColor: '#EF4444' }]}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnText} numberOfLines={1}>Eliminar reporte</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -412,7 +547,9 @@ export default function AdminScreen({ navigation }) {
       <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => setShowDeleteModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: darkMode ? '#1e1e1e' : '#fff', maxHeight: Math.max(420, Math.floor(screenH * 0.88)) }]}>
-            <Text style={[styles.modalTitle, { color: darkMode ? '#fff' : '#111' }]}>Eliminar publicación</Text>
+            <Text style={[styles.modalTitle, { color: darkMode ? '#fff' : '#111' }]}>
+              {target?.publication?.tipo === 'producto' ? 'Eliminar producto' : 'Eliminar publicación'}
+            </Text>
             <Text style={{ color: darkMode ? '#ddd' : '#444', marginBottom: 8 }}>
               Completa este formulario. Se notificará al autor por correo y en su perfil.
             </Text>
@@ -560,7 +697,7 @@ const createStyles = (darkMode, safeTop = 0) => StyleSheet.create({
 
 // Helpers y flujo de eliminación
 const extractMultimediaPath = (publicUrl) => {
-  if (!publicUrl) return null;
+  if (!publicUrl || typeof publicUrl !== 'string') return null;
   try {
     const u = new URL(publicUrl);
     const marker = '/object/public/multimedia/';
@@ -569,7 +706,7 @@ const extractMultimediaPath = (publicUrl) => {
     const parts = publicUrl.split('?')[0].split('/multimedia/');
     if (parts[1]) return decodeURIComponent(parts[1]);
   } catch (_) {
-    const parts = (publicUrl || '').split('?')[0].split('/multimedia/');
+    const parts = publicUrl.split('?')[0].split('/multimedia/');
     if (parts[1]) return decodeURIComponent(parts[1]);
   }
   return null;

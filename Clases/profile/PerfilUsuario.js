@@ -1,4 +1,3 @@
-//Antes de hacer el commit, asegurarme de avisar a los demas por si estan trabajando en el mismo archivo
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -6,10 +5,11 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { supabase } from '../../Supabase/supabaseClient';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../contexts/ThemeContext'; 
+import { useTheme } from '../contexts/ThemeContext';
+import { useResponsive } from '../hooks/useResponsive';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { Video } from 'expo-av';
 import CreatePublicationModal from '../publications/CreatePublicationModal';
@@ -18,6 +18,7 @@ const Tab = createMaterialTopTabNavigator();
 
 export default function PerfilUsuario({ navigation }) {
   const { darkMode } = useTheme();
+  const responsive = useResponsive();
   const [usuario, setUsuario] = useState(null);
   const [loading, setLoading] = useState(true);
   const [nuevaBio, setNuevaBio] = useState('');
@@ -249,25 +250,134 @@ export default function PerfilUsuario({ navigation }) {
 }
 
 function InfoTab({ usuario, darkMode }) {
+  const navigation = useNavigation();
+  const responsive = useResponsive();
+  
+  const formatearFecha = (fecha) => {
+    if (!fecha) return 'No especificada';
+    const date = new Date(fecha);
+    const opciones = { year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString('es-ES', opciones);
+  };
+
+  const calcularEdad = (fechaNac) => {
+    if (!fechaNac) return null;
+    const hoy = new Date();
+    const nacimiento = new Date(fechaNac);
+    let edad = hoy.getFullYear() - nacimiento.getFullYear();
+    const mes = hoy.getMonth() - nacimiento.getMonth();
+    if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+      edad--;
+    }
+    return edad;
+  };
+
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: darkMode ? "#181818" : "#fff", padding: 24 }}>
-      <Text style={[styles.sectionTitle, darkMode && { color: "#fff" }]}>Estudiante</Text>
-      <View style={styles.infoList}>
-        <View style={styles.infoRow}><MaterialIcons name="email" size={20} color="#007AFF" /><Text style={styles.infoText}>{usuario.correo}</Text></View>
-        <View style={styles.infoRow}><MaterialIcons name="phone" size={20} color="#007AFF" /><Text style={styles.infoText}>+506 8888 8888</Text></View>
-        <View style={styles.infoRow}><MaterialIcons name="location-on" size={20} color="#007AFF" /><Text style={styles.infoText}>San José, Costa Rica</Text></View>
-      </View>
-      <Text style={[styles.sectionTitle, darkMode && { color: "#fff" }]}>Estadísticas</Text>
-      <View style={styles.statsList}>
-        <View style={styles.statsRow}><MaterialIcons name="school" size={20} color="#007AFF" /><Text style={styles.statsText}>Cursos: 12</Text></View>
-        <View style={styles.statsRow}><MaterialIcons name="emoji-events" size={20} color="#007AFF" /><Text style={styles.statsText}>Logros: 5</Text></View>
-      </View>
-      <Text style={[styles.sectionTitle, darkMode && { color: "#fff" }]}>Accesos rápidos</Text>
-      <View style={styles.quickList}>
-        <View style={styles.quickRow}><MaterialIcons name="settings" size={20} color="#007AFF" /><Text style={styles.quickText}>Configuración</Text></View>
-        <View style={styles.quickRow}><MaterialIcons name="notifications" size={20} color="#007AFF" /><Text style={styles.quickText}>Notificaciones</Text></View>
-      
-        <View style={styles.quickRow}><MaterialIcons name="history" size={20} color="#007AFF" /><Text style={styles.quickText}>Historial</Text></View>
+    <ScrollView style={{ 
+      flex: 1, 
+      backgroundColor: darkMode ? "#181818" : "#fff", 
+      padding: responsive.spacing.lg 
+    }}>
+      {/* Botón de editar perfil */}
+      <TouchableOpacity
+        style={[styles.editButton, { 
+          backgroundColor: darkMode ? '#1e40af' : '#007AFF',
+          paddingVertical: responsive.spacing.md,
+          paddingHorizontal: responsive.spacing.lg,
+          marginBottom: responsive.spacing.lg,
+        }]}
+        onPress={() => navigation.navigate('EditarPerfil', { usuario })}
+      >
+        <MaterialIcons name="edit" size={responsive.getValue(18, 20, 22)} color="#fff" />
+        <Text style={[styles.editButtonText, { fontSize: responsive.fontSize.md }]}>Editar Perfil</Text>
+      </TouchableOpacity>
+
+      {/* Biografía */}
+      {usuario.biografia && (
+        <View style={[styles.infoCard, { 
+          backgroundColor: darkMode ? '#1e1e1e' : '#f8fafc',
+          padding: responsive.spacing.lg,
+          marginBottom: responsive.spacing.md,
+          borderRadius: responsive.getValue(12, 14, 16),
+        }]}>
+          <View style={[styles.cardHeader, { marginBottom: responsive.spacing.sm }]}>
+            <MaterialIcons name="person" size={responsive.getValue(20, 22, 24)} color="#007AFF" />
+            <Text style={[styles.cardTitle, { 
+              fontSize: responsive.fontSize.lg,
+            }, darkMode && { color: "#fff" }]}>Biografía</Text>
+          </View>
+          <Text style={[styles.cardText, { 
+            color: darkMode ? '#cbd5e1' : '#475569',
+            fontSize: responsive.fontSize.md,
+            lineHeight: responsive.getValue(20, 22, 24),
+          }]}>
+            {usuario.biografia}
+          </Text>
+        </View>
+      )}
+
+      {/* Gustos e Intereses */}
+      {usuario.gustos && (
+        <View style={[styles.infoCard, { 
+          backgroundColor: darkMode ? '#1e1e1e' : '#f8fafc',
+          padding: responsive.spacing.lg,
+          marginBottom: responsive.spacing.md,
+          borderRadius: responsive.getValue(12, 14, 16),
+        }]}>
+          <View style={[styles.cardHeader, { marginBottom: responsive.spacing.sm }]}>
+            <MaterialIcons name="favorite" size={responsive.getValue(20, 22, 24)} color="#007AFF" />
+            <Text style={[styles.cardTitle, { 
+              fontSize: responsive.fontSize.lg,
+            }, darkMode && { color: "#fff" }]}>Gustos e Intereses</Text>
+          </View>
+          <Text style={[styles.cardText, { 
+            color: darkMode ? '#cbd5e1' : '#475569',
+            fontSize: responsive.fontSize.md,
+            lineHeight: responsive.getValue(20, 22, 24),
+          }]}>
+            {usuario.gustos}
+          </Text>
+        </View>
+      )}
+
+      {/* Información Personal */}
+      <View style={[styles.infoCard, { 
+        backgroundColor: darkMode ? '#1e1e1e' : '#f8fafc',
+        padding: responsive.spacing.lg,
+        marginBottom: responsive.spacing.md,
+        borderRadius: responsive.getValue(12, 14, 16),
+      }]}>
+        <View style={[styles.cardHeader, { marginBottom: responsive.spacing.md }]}>
+          <MaterialIcons name="info" size={responsive.getValue(20, 22, 24)} color="#007AFF" />
+          <Text style={[styles.cardTitle, { 
+            fontSize: responsive.fontSize.lg,
+          }, darkMode && { color: "#fff" }]}>Información Personal</Text>
+        </View>
+        <View style={styles.infoList}>
+          <View style={[styles.infoRow, { marginBottom: responsive.spacing.sm }]}>
+            <MaterialIcons name="email" size={responsive.getValue(18, 20, 20)} color="#007AFF" />
+            <Text style={[styles.infoText, { fontSize: responsive.fontSize.sm }]}>{usuario.correo}</Text>
+          </View>
+          {usuario.fecha_nacimiento && (
+            <>
+              <View style={[styles.infoRow, { marginBottom: responsive.spacing.sm }]}>
+                <MaterialIcons name="cake" size={responsive.getValue(18, 20, 20)} color="#007AFF" />
+                <Text style={[styles.infoText, { fontSize: responsive.fontSize.sm }]}>
+                  Cumpleaños: {formatearFecha(usuario.fecha_nacimiento)}
+                  {calcularEdad(usuario.fecha_nacimiento) && ` (${calcularEdad(usuario.fecha_nacimiento)} años)`}
+                </Text>
+              </View>
+            </>
+          )}
+          <View style={[styles.infoRow, { marginBottom: responsive.spacing.sm }]}>
+            <MaterialIcons name="school" size={responsive.getValue(18, 20, 20)} color="#007AFF" />
+            <Text style={[styles.infoText, { fontSize: responsive.fontSize.sm }]}>{usuario.carrera || 'Carrera no especificada'}</Text>
+          </View>
+          <View style={[styles.infoRow, { marginBottom: responsive.spacing.sm }]}>
+            <MaterialIcons name="badge" size={responsive.getValue(18, 20, 20)} color="#007AFF" />
+            <Text style={[styles.infoText, { fontSize: responsive.fontSize.sm }]}>Carnet: {usuario.carnet}</Text>
+          </View>
+        </View>
       </View>
     </ScrollView>
   );
@@ -734,6 +844,58 @@ const styles = StyleSheet.create({
   infoList: { marginBottom: 12, alignSelf: 'flex-start' },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   infoText: { fontSize: 15, color: '#4e7397', marginLeft: 8, alignSelf: 'flex-start' },
+
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    gap: 8,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  
+  infoCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 122, 255, 0.1)',
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginLeft: 10,
+    color: '#222',
+  },
+  cardText: {
+    fontSize: 15,
+    lineHeight: 24,
+    letterSpacing: 0.3,
+  },
+  bioText: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
 
   sectionTitle: {
     fontSize: 18,

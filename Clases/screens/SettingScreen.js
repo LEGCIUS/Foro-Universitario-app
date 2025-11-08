@@ -34,7 +34,8 @@ const SettingScreen = ({ onLogout, navigation }) => {
         const isAdminRole = (v) => {
           if (typeof v !== 'string') return false;
           const val = v.toLowerCase().trim();
-          return val === 'admin' || val === 'administrador';
+          // Considera variantes: admin, administrador, administración (con y sin tilde)
+          return val === 'admin' || val === 'administrador' || val === 'administración' || val === 'administracion';
         };
   const admin = isAdminRole(data?.rol) || isTrue(data?.is_admin);
         setIsAdmin(Boolean(admin));
@@ -65,7 +66,7 @@ const SettingScreen = ({ onLogout, navigation }) => {
           const isAdminRole = (v) => {
             if (typeof v !== 'string') return false;
             const val = v.toLowerCase().trim();
-            return val === 'admin' || val === 'administrador';
+            return val === 'admin' || val === 'administrador' || val === 'administración' || val === 'administracion';
           };
           const admin = isAdminRole(data?.rol) || isTrue(data?.is_admin);
           setIsAdmin(Boolean(admin));

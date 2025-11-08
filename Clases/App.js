@@ -82,7 +82,6 @@ export default function App() {
                     if (route.name === 'Home') iconName = 'home';
                     else if (route.name === 'Comunidad') iconName = 'groups';
                     else if (route.name === 'Ventas') iconName = 'shopping-cart';
-                    else if (route.name === 'Fotos') iconName = 'photo';
                     else if (route.name === 'Perfil') iconName = 'person';
                     else if (route.name === 'Config') iconName = 'settings';
                     return <Icon name={iconName} size={size} color={color} />;
@@ -110,15 +109,26 @@ export default function App() {
                   {props => <ProductosList {...props} navigation={props.navigation} />}
                 </Tab.Screen>
                 <Tab.Screen name="Comunidad" component={ComunidadScreen} />
-                <Tab.Screen name="Fotos" component={HomeScreen} />
+                <Tab.Screen name="Perfil" component={PerfilUsuario} />
                 <Tab.Screen name="Config">
                   {props => <SettingScreen {...props} onLogout={handleLogout} />}
                 </Tab.Screen>
-                <Tab.Screen name="Perfil" component={PerfilUsuario} />
               </Tab.Navigator>
             )}
           </Stack.Screen>
           <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} />
+          <Stack.Screen
+            name="EditarPerfil"
+            component={require('./profile/EditarPerfil').default}
+            options={{ 
+              headerShown: true,
+              title: 'Editar Perfil',
+              headerStyle: {
+                backgroundColor: darkMode ? '#181818' : '#fff',
+              },
+              headerTintColor: darkMode ? '#fff' : '#222',
+            }}
+          />
           <Stack.Screen
             name="PerfilUsuario"
             component={require('./profile/PerfilUsuarioScreen').default}

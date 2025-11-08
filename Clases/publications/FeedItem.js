@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, AppState } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, AppState, TextInput } from 'react-native';
 import { Video } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Asset } from 'expo-asset';
@@ -402,13 +402,14 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
                 </TouchableOpacity>
               ))}
               <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
-              <View style={{ minHeight: 80, borderWidth: 1, borderColor: darkMode ? '#333' : '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: darkMode ? '#111' : '#fafafa' }}>
-                <Text
-                  style={{ color: darkMode ? '#fff' : '#111' }}
-                >
-                  {reportText}
-                </Text>
-              </View>
+              <TextInput
+                value={reportText}
+                onChangeText={setReportText}
+                placeholder="Describe el problema (opcional)"
+                placeholderTextColor={darkMode ? '#888' : '#999'}
+                multiline
+                style={{ minHeight: 80, borderWidth: 1, borderColor: darkMode ? '#333' : '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: darkMode ? '#111' : '#fafafa', color: darkMode ? '#fff' : '#111', textAlignVertical: 'top' }}
+              />
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
                 <TouchableOpacity onPress={() => { closeMenu(); setReportModalVisible(false); }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
                   <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>

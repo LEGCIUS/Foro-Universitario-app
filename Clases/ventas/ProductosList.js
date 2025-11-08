@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal, TouchableWithoutFeedback, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
+import { useResponsive } from '../hooks/useResponsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu }) {
@@ -132,6 +133,7 @@ const MemoProductoCard = React.memo(ProductoCard);
 export default function ProductosList(props) {
   const { onVerDetalle, navigation } = props;
   const { darkMode } = useTheme();
+  const responsive = useResponsive();
   const insets = useSafeAreaInsets();
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,6 +144,7 @@ export default function ProductosList(props) {
   const [imagenIndex, setImagenIndex] = useState(0);
   const [menuVisible, setMenuVisible] = useState(false);
   const [viewerWidth, setViewerWidth] = useState(0);
+  const flatListRef = React.useRef(null);
 
   // Estado para reportes (similar a FeedItem)
   const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -198,13 +201,17 @@ export default function ProductosList(props) {
 
   const handleImagenAnterior = () => {
     if (productoSeleccionado && Array.isArray(productoSeleccionado.foto_url)) {
-      setImagenIndex((prev) => (prev > 0 ? prev - 1 : productoSeleccionado.foto_url.length - 1));
+      const newIndex = imagenIndex > 0 ? imagenIndex - 1 : productoSeleccionado.foto_url.length - 1;
+      setImagenIndex(newIndex);
+      flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
     }
   };
 
   const handleImagenSiguiente = () => {
     if (productoSeleccionado && Array.isArray(productoSeleccionado.foto_url)) {
-      setImagenIndex((prev) => (prev < productoSeleccionado.foto_url.length - 1 ? prev + 1 : 0));
+      const newIndex = imagenIndex < productoSeleccionado.foto_url.length - 1 ? imagenIndex + 1 : 0;
+      setImagenIndex(newIndex);
+      flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
     }
   };
 
@@ -262,25 +269,40 @@ export default function ProductosList(props) {
         <FlatList
           data={categoriaSeleccionada === 'todos' ? productos : productos.filter(p => p.categoria === categoriaSeleccionada)}
           keyExtractor={item => item.id?.toString()}
-          contentContainerStyle={[styles.list, { paddingBottom: 90 }]}
+          contentContainerStyle={[styles.list, { 
+            paddingBottom: 90,
+            paddingHorizontal: responsive.spacing.md,
+          }]}
+          numColumns={responsive.productColumns}
+          key={`grid-${responsive.productColumns}`}
+          columnWrapperStyle={responsive.productColumns > 1 ? { 
+            gap: responsive.spacing.md,
+            justifyContent: 'flex-start',
+          } : undefined}
           renderItem={({ item }) => (
-            <MemoProductoCard
-              item={item}
-              onVerDetalle={handleVerDetalle}
-              navigation={navigation}
-              userCarnet={userCarnet}
-              handleProductoPublicado={handleProductoPublicado}
-              setLoading={setLoading}
-              closeMenu={() => setMenuVisible(false)}
-            />
+            <View style={{ 
+              flex: responsive.productColumns > 1 ? 1 / responsive.productColumns : 1,
+              maxWidth: responsive.productColumns > 1 ? `${100 / responsive.productColumns - 2}%` : '100%',
+              marginBottom: responsive.spacing.md,
+            }}>
+              <MemoProductoCard
+                item={item}
+                onVerDetalle={handleVerDetalle}
+                navigation={navigation}
+                userCarnet={userCarnet}
+                handleProductoPublicado={handleProductoPublicado}
+                setLoading={setLoading}
+                closeMenu={() => setMenuVisible(false)}
+              />
+            </View>
           )}
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No hay productos publicados aún.</Text>
+              <Text style={[styles.emptyText, { fontSize: responsive.fontSize.md }]}>No hay productos publicados aún.</Text>
             </View>
           )}
           removeClippedSubviews={true}
-          initialNumToRender={4}
+          initialNumToRender={responsive.getValue(4, 6, 8)}
           maxToRenderPerBatch={6}
           windowSize={6}
         />
@@ -308,10 +330,11 @@ export default function ProductosList(props) {
 
                 {productoSeleccionado && (
                   <>
-                    <View style={{ alignItems: 'center', marginBottom: 12 }} onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}>
+                    <View style={{ alignItems: 'center', marginBottom: 12, position: 'relative' }} onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}>
                       {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
                         <>
                           <FlatList
+                            ref={flatListRef}
                             data={productoSeleccionado.foto_url}
                             horizontal
                             pagingEnabled
@@ -330,7 +353,30 @@ export default function ProductosList(props) {
                                 resizeMode="cover"
                               />
                             )}
+                            getItemLayout={(data, index) => ({
+                              length: viewerWidth,
+                              offset: viewerWidth * index,
+                              index,
+                            })}
                           />
+                          {productoSeleccionado.foto_url.length > 1 && (
+                            <>
+                              <TouchableOpacity
+                                style={[styles.arrowButtonLeft, { left: 10 }]}
+                                onPress={handleImagenAnterior}
+                                activeOpacity={0.7}
+                              >
+                                <MaterialIcons name="chevron-left" size={32} color="#fff" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={[styles.arrowButtonRight, { right: 10 }]}
+                                onPress={handleImagenSiguiente}
+                                activeOpacity={0.7}
+                              >
+                                <MaterialIcons name="chevron-right" size={32} color="#fff" />
+                              </TouchableOpacity>
+                            </>
+                          )}
                           <View style={styles.modalDotsRow}>
                             {productoSeleccionado.foto_url.map((_, idx) => (
                               <View key={idx} style={[styles.modalDot, idx === imagenIndex && styles.modalDotActive]} />
@@ -394,14 +440,14 @@ export default function ProductosList(props) {
                   </TouchableOpacity>
                 ))}
                 <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
-                <View style={{ minHeight: 80, borderWidth: 1, borderColor: darkMode ? '#333' : '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: darkMode ? '#111' : '#fafafa' }}>
-                  <Text
-                    onPress={() => {}}
-                    style={{ color: darkMode ? '#fff' : '#111' }}
-                  >
-                    {reportText}
-                  </Text>
-                </View>
+                <TextInput
+                  value={reportText}
+                  onChangeText={setReportText}
+                  placeholder="Describe el problema (opcional)"
+                  placeholderTextColor={darkMode ? '#888' : '#999'}
+                  multiline
+                  style={{ minHeight: 80, borderWidth: 1, borderColor: darkMode ? '#333' : '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: darkMode ? '#111' : '#fafafa', color: darkMode ? '#fff' : '#111', textAlignVertical: 'top' }}
+                />
                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
                   <TouchableOpacity onPress={() => setReportModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
                     <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
@@ -412,17 +458,17 @@ export default function ProductosList(props) {
                         const carnet = await AsyncStorage.getItem('carnet');
                         if (!carnet) throw new Error('No se encontró el usuario actual');
 
+                        // Insertar reporte de producto en la nueva tabla reportes_ventas
                         const payload = {
-                          tipo: 'producto',
-                          id_contenido: productoSeleccionado?.id || null,
-                          usuario_reportante: carnet,
-                          usuario_publica: productoSeleccionado?.usuario_carnet || null,
+                          producto_id: productoSeleccionado?.id || null,
+                          carnet_reporta: carnet,
+                          carnet_publica: productoSeleccionado?.usuario_carnet || null,
                           motivo: reportReason,
                           detalle: reportText || null,
                           created_at: new Date().toISOString(),
                         };
 
-                        const { error } = await supabase.from('reportes').insert([payload]);
+                        const { error } = await supabase.from('reportes_ventas').insert([payload]);
                         if (error) throw error;
 
                         Alert.alert('Reporte enviado', 'Gracias. Revisaremos el reporte.');
@@ -705,5 +751,41 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: '#fff',
     fontWeight: 'bold',
+  },
+  arrowButtonLeft: {
+    position: 'absolute',
+    left: 10,
+    top: '50%',
+    marginTop: -24,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0, 122, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 100,
+  },
+  arrowButtonRight: {
+    position: 'absolute',
+    right: 10,
+    top: '50%',
+    marginTop: -24,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0, 122, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 100,
   },
 });

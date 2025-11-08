@@ -8,6 +8,7 @@ import { Buffer } from 'buffer';
 import { supabase } from '../../Supabase/supabaseClient';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { MaterialIcons } from '@expo/vector-icons';
 
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
@@ -29,6 +30,7 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
   const [categoria, setCategoria] = useState('comida');
   const [horaInicioVenta, setHoraInicioVenta] = useState(null);
   const [showHoraPicker, setShowHoraPicker] = useState(false);
+  const [imagenActualIndex, setImagenActualIndex] = useState(0);
 
   React.useEffect(() => {
     async function fetchProducto() {
@@ -78,7 +80,20 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
     if (!result.canceled) {
       const uris = result.assets.map(a => a.uri);
       setPreviewUris(uris);
+      setImagenActualIndex(0);
       setShowPreview(true);
+    }
+  };
+
+  const siguienteImagen = () => {
+    if (imagenActualIndex < previewUris.length - 1) {
+      setImagenActualIndex(imagenActualIndex + 1);
+    }
+  };
+
+  const anteriorImagen = () => {
+    if (imagenActualIndex > 0) {
+      setImagenActualIndex(imagenActualIndex - 1);
     }
   };
 
@@ -171,6 +186,7 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
         const { error: insertError } = await supabase
           .from('productos')
           .insert([{
+            nombre: nombre,
             usuario_carnet: carnet,
             nombre_vendedor: nombreVendedor,
             telefono: telefonoFormateado,
@@ -306,21 +322,40 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
             <Text style={styles.imageButtonText}>{previewUris.length > 0 ? 'Cambiar fotos' : 'Subir fotos'}</Text>
           </TouchableOpacity>
           {previewUris.length > 0 && (
-            <FlatList
-              data={previewUris}
-              horizontal
-              keyExtractor={(uri, idx) => uri + idx}
-              style={{ marginBottom: 12 }}
-              renderItem={({ item }) => (
-                <View style={{ width: 120, height: 120, marginRight: 8 }}>
-                  <Image source={{ uri: item }} style={styles.imagePreview} resizeMode="cover" />
-                </View>
-              )}
-              initialNumToRender={3}
-              maxToRenderPerBatch={4}
-              windowSize={3}
-              removeClippedSubviews={true}
-            />
+            <View style={styles.imageCarouselContainer}>
+              <View style={styles.imagePreviewContainer}>
+                <Image 
+                  source={{ uri: previewUris[imagenActualIndex] }} 
+                  style={styles.imagePreviewLarge} 
+                  resizeMode="cover" 
+                />
+                {previewUris.length > 1 && (
+                  <View style={styles.imageNavigationContainer}>
+                    <TouchableOpacity 
+                      style={[styles.arrowButton, imagenActualIndex === 0 && styles.arrowButtonDisabled]} 
+                      onPress={anteriorImagen}
+                      disabled={imagenActualIndex === 0}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons name="chevron-left" size={28} color="#fff" />
+                    </TouchableOpacity>
+                    <View style={styles.counterContainer}>
+                      <Text style={styles.imageCounter}>
+                        {imagenActualIndex + 1} / {previewUris.length}
+                      </Text>
+                    </View>
+                    <TouchableOpacity 
+                      style={[styles.arrowButton, imagenActualIndex === previewUris.length - 1 && styles.arrowButtonDisabled]} 
+                      onPress={siguienteImagen}
+                      disabled={imagenActualIndex === previewUris.length - 1}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialIcons name="chevron-right" size={28} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
           )}
           <TouchableOpacity style={[styles.publishButton, { backgroundColor: '#007AFF' }]} onPress={handlePublicar} disabled={subiendo}>
             {subiendo ? <ActivityIndicator color="#fff" /> : <Text style={styles.publishButtonText}>Publicar</Text>}
@@ -358,4 +393,66 @@ const styles = StyleSheet.create({
   categoriaSelected: { backgroundColor: '#007AFF' },
   categoriaOptionText: { color: '#1e293b', fontWeight: '700' },
   categoriaSelectedText: { color: '#fff', fontWeight: '700' },
+  imageCarouselContainer: { 
+    marginBottom: 12, 
+    alignItems: 'center' 
+  },
+  imagePreviewContainer: { 
+    width: '100%', 
+    height: 200, 
+    marginBottom: 8,
+    position: 'relative'
+  },
+  imagePreviewLarge: { 
+    width: '100%', 
+    height: '100%', 
+    borderRadius: 12 
+  },
+  imageNavigationContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    position: 'absolute',
+    bottom: 0,
+    width: '100%',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    zIndex: 10
+  },
+  arrowButton: { 
+    backgroundColor: '#007AFF', 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84
+  },
+  arrowButtonDisabled: { 
+    backgroundColor: '#64748b', 
+    opacity: 0.6
+  },
+  arrowText: { 
+    color: '#fff', 
+    fontSize: 20, 
+    fontWeight: 'bold' 
+  },
+  counterContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20
+  },
+  imageCounter: { 
+    fontSize: 16, 
+    fontWeight: '700',
+    color: '#fff'
+  },
 });

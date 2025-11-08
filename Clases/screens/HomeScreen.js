@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Añadir imports para tema y gradiente
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../contexts/ThemeContext';
+import { useResponsive } from '../hooks/useResponsive';
 import Etiquetas from '../components/Etiquetas';
 import BuscadorUsuarios from '../components/BuscadorUsuarios';
 import FeedList from '../publications/FeedList';
@@ -31,6 +32,7 @@ import CreatePublicationModal from '../publications/CreatePublicationModal';
 export default function HomeScreen({ onLogout, navigation }) {
   const isFocused = useIsFocused();
   const { darkMode } = useTheme();
+  const responsive = useResponsive();
 
   // Guardar medidas del header tal como quedan en el primer render y no volver a recalcular
   const insets = useSafeAreaInsets();

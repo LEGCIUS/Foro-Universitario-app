@@ -60,14 +60,23 @@ export default function CreatePublicationModal({ visible, onClose, onPublished }
       let publicUrl = null;
       if (previewMedia?.uri) {
         const uri = previewMedia.uri;
-        const fileName = uri.split('/').pop();
+        const fileName = uri.split('/').pop() || `upload_${Date.now()}.jpg`;
         const fileType = fileName.split('.').pop();
         const filePath = `${carnet}/publicaciones/${Date.now()}_${fileName}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-        const fileBuffer = Buffer.from(base64, 'base64');
+        
+        let fileToUpload;
+        if (Platform.OS === 'web') {
+          // En web, el asset tiene la propiedad 'file' directamente
+          fileToUpload = previewMedia.file || previewMedia;
+        } else {
+          // En nativo, leemos el archivo como base64 y creamos un buffer
+          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+          fileToUpload = Buffer.from(base64, 'base64');
+        }
+        
         const { error: uploadError } = await supabase.storage
           .from('multimedia')
-          .upload(filePath, fileBuffer, {
+          .upload(filePath, fileToUpload, {
             contentType: mediaType === 'video' ? `video/${fileType}` : `image/${fileType}`,
             cacheControl: '3600',
             upsert: true,
@@ -76,16 +85,18 @@ export default function CreatePublicationModal({ visible, onClose, onPublished }
         const { data: publicData } = supabase.storage.from('multimedia').getPublicUrl(filePath);
         publicUrl = publicData.publicUrl + `?t=${Date.now()}`;
       }
-      const { error } = await supabase.from('publicaciones').insert([
-        {
-          titulo: newPost,
-          archivo_url: publicUrl,
-          contenido: previewMedia ? mediaType : 'text',
-          fecha_publicacion: new Date().toISOString(),
-          carnet_usuario: carnet,
-          etiquetas: JSON.stringify(etiquetasSeleccionadas),
-        },
-      ]);
+      const payload = {
+        titulo: newPost || '(sin título)',
+        archivo_url: publicUrl,
+        contenido: previewMedia ? mediaType : 'text',
+        fecha_publicacion: new Date().toISOString(),
+        carnet_usuario: carnet,
+        etiquetas: JSON.stringify(etiquetasSeleccionadas || []),
+      };
+      const { data: inserted, error } = await supabase
+        .from('publicaciones')
+        .insert([payload])
+        .select('*');
       if (error) throw error;
       setNewPost('');
       setPreviewMedia(null);
@@ -93,7 +104,10 @@ export default function CreatePublicationModal({ visible, onClose, onPublished }
       setEtiquetasSeleccionadas([]);
       onPublished && onPublished();
     } catch (err) {
-      // optionally show toast
+      console.error('Error al crear publicación:', err);
+      try {
+        alert(`Error al crear publicación: ${err?.message || 'desconocido'}`);
+      } catch {}
     }
     setUploading(false);
   };
