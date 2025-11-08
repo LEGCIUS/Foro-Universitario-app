@@ -3,9 +3,10 @@ import { View, StyleSheet, FlatList } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import FeedItem from './FeedItem';
 
-export default function FeedList({ posts = [], isScreenFocused = true }) {
+export default function FeedList({ posts = [], isScreenFocused = true, closeSignal = 0 }) {
   const { darkMode } = useTheme();
   const [visibleIds, setVisibleIds] = useState(new Set());
+  const [scrollToken, setScrollToken] = useState(0);
   const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 75 });
 
   const onViewableItemsChangedRef = useRef(({ viewableItems }) => {
@@ -26,18 +27,25 @@ export default function FeedList({ posts = [], isScreenFocused = true }) {
             a?.mediaType === b?.mediaType &&
             a?.text === b?.text &&
             prev.isVisible === next.isVisible &&
-            prev.isScreenFocused === next.isScreenFocused
+            prev.isScreenFocused === next.isScreenFocused &&
+            prev.closeSignal === next.closeSignal
           );
         }
       ),
     []
   );
 
+  const effectiveCloseSignal = closeSignal + scrollToken;
   const renderItem = useCallback(
     ({ item }) => (
-      <MemoFeedItem item={item} isVisible={visibleIds.has(item.id)} isScreenFocused={isScreenFocused} />
+      <MemoFeedItem
+        item={item}
+        isVisible={visibleIds.has(item.id)}
+        isScreenFocused={isScreenFocused}
+        closeSignal={effectiveCloseSignal}
+      />
     ),
-    [visibleIds, isScreenFocused, MemoFeedItem]
+    [visibleIds, isScreenFocused, effectiveCloseSignal, MemoFeedItem]
   );
 
   return (
@@ -53,6 +61,8 @@ export default function FeedList({ posts = [], isScreenFocused = true }) {
       windowSize={7}
       onViewableItemsChanged={onViewableItemsChanged}
       viewabilityConfig={viewabilityConfigRef.current}
+      onScrollBeginDrag={() => setScrollToken(t => t + 1)}
+      onMomentumScrollBegin={() => setScrollToken(t => t + 1)}
       ItemSeparatorComponent={() => (
         <View style={[styles.separator, { backgroundColor: darkMode ? '#2b2b2b' : '#eaeaea' }]} />
       )}

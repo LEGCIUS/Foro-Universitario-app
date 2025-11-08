@@ -53,6 +53,8 @@ export default function HomeScreen({ onLogout, navigation }) {
   const [etiquetasFiltro, setEtiquetasFiltro] = useState([]);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarBuscador, setMostrarBuscador] = useState(false);
+  // Token para forzar cierre de menús (FeedItem) ante acciones globales como buscar/filtrar
+  const [feedInteractionToken, setFeedInteractionToken] = useState(0);
 
   // Video prefetch is handled inside FeedItem now
 
@@ -259,14 +261,16 @@ export default function HomeScreen({ onLogout, navigation }) {
       <View style={{ paddingTop: Math.max(10, insets.top + 4), backgroundColor: darkMode ? '#111' : '#fff' }}>
         <View style={styles.header}>
           {/* Título y botones mantienen la misma distribución inicial */}
-          <Text style={[styles.headerTitle, { color: '#000000ff' }]}>Foro Universitario</Text>
+          <Text style={[styles.headerTitle, { color: darkMode ? '#ffffffff' : '#000000ff' }]}>Foro Universitario</Text>
 
           <View style={styles.headerButtons}>
             <TouchableOpacity 
               style={styles.headerButton}
-              onPress={() => setMostrarBuscador(true)}
+              onPress={() => { setFeedInteractionToken(t => t + 1); setMostrarBuscador(true); }}
             >
-              <MaterialIcons name="search" size={24} color="#000000ff" />
+              <MaterialIcons name="search" 
+              size={24} 
+              color={darkMode ? '#ffffffff' : '#000000ff'} />
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -274,9 +278,12 @@ export default function HomeScreen({ onLogout, navigation }) {
                 styles.filterButton,
                 etiquetasFiltro.length > 0 && { backgroundColor: 'rgba(0,122,255,0.1)' }
               ]}
-              onPress={() => setMostrarFiltros(true)}
+              onPress={() => { setFeedInteractionToken(t => t + 1); setMostrarFiltros(true); }}
             >
-              <MaterialIcons name="filter-list" size={24} color={etiquetasFiltro.length > 0 ? '#007AFF' : '#000000ff'} />
+              <MaterialIcons name="filter-list" 
+              size={24} 
+               color={etiquetasFiltro.length > 0 ? '#007AFF' : (darkMode ? '#ffffffff' : '#000000ff')} 
+              />
               {etiquetasFiltro.length > 0 && (
                 <View style={styles.filterBadge}>
                   <Text style={styles.filterBadgeText}>{etiquetasFiltro.length}</Text>
@@ -289,6 +296,7 @@ export default function HomeScreen({ onLogout, navigation }) {
       <FeedList
         posts={publicacionesValidas}
         isScreenFocused={isFocused}
+        closeSignal={feedInteractionToken}
       />
       {/* Botón flotante para publicar */}
       <TouchableOpacity style={[styles.fab, { backgroundColor: '#007AFF', shadowColor: '#007AFF' }]} onPress={() => setShowPublishModal(true)} activeOpacity={0.8}>

@@ -8,6 +8,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import Etiquetas from '../components/Etiquetas';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
+import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
@@ -27,8 +28,9 @@ function formatRelativeTime(iso) {
   }
 }
 
-export default function FeedItem({ item, isVisible, isScreenFocused }) {
+export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal }) {
   const { darkMode } = useTheme();
+  const navigation = useNavigation();
   const hideControlsTimeout = useRef(null);
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(item.likes || 0);
@@ -53,6 +55,48 @@ export default function FeedItem({ item, isVisible, isScreenFocused }) {
   const videoRef = useRef(null);
   const thumbCacheRef = useRef(new Map());
   const prefetchingRef = useRef(new Set());
+
+  // Cierra el menú si está abierto (helper para reutilizar)
+  const closeMenu = () => setMenuOpen(false);
+
+  // Cerrar menú si se pierde foco de la pantalla del feed (prop isScreenFocused ya controla video)
+  useEffect(() => {
+    if (!isScreenFocused) {
+      closeMenu();
+    }
+  }, [isScreenFocused]);
+
+  // Cerrar menú si el item deja de ser visible (por scroll / cambio de página)
+  useEffect(() => {
+    if (!isVisible) {
+      closeMenu();
+    }
+  }, [isVisible]);
+
+  // Cerrar menú cuando llega una señal externa (scroll, búsqueda, filtro, etc.)
+  useEffect(() => {
+    if (closeSignal !== undefined) {
+      closeMenu();
+    }
+  }, [closeSignal]);
+
+  // Función para navegar al perfil del usuario
+  const handleNavigateToProfile = async () => {
+    try {
+      closeMenu(); // Cerrar menú si está abierto
+      const currentUserCarnet = await AsyncStorage.getItem('carnet');
+      
+      // Si es el usuario actual, navegar a la pestaña Perfil
+      if (currentUserCarnet === item.userId) {
+        navigation.navigate('Perfil');
+      } else {
+        // Si es otro usuario, navegar a ViewUserProfile
+        navigation.navigate('ViewUserProfile', { userId: item.userId });
+      }
+    } catch (error) {
+      console.error('Error al navegar al perfil:', error);
+    }
+  };
 
   const prefetchVideo = async (uri) => {
     if (!uri || prefetchingRef.current.has(uri)) return;
@@ -158,6 +202,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused }) {
         videoRef.current?.pauseAsync();
         videoRef.current?.setPositionAsync(0);
         setIsPlaying(false);
+        setMenuOpen(false);
       }
     });
     return () => sub.remove && sub.remove();
@@ -169,167 +214,175 @@ export default function FeedItem({ item, isVisible, isScreenFocused }) {
 
   return (
     <>
-      <View style={[styles.feedCard, darkMode && { backgroundColor: '#171717' }]}> 
-        <View style={[styles.postHeader, { zIndex: 200, elevation: 8 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.postAvatar} />
-            <View>
-              <Text style={[styles.postUser, darkMode && styles.postUserDark]}>{item.userName || 'Usuario'}</Text>
-              <Text style={[styles.postTime, darkMode && styles.postTimeDark]}>{formatRelativeTime(item.fecha)}</Text>
+      <View style={{ position: 'relative' }}>
+
+        <View style={[styles.feedCard, darkMode && { backgroundColor: '#171717' }]}>
+          <View style={[styles.postHeader, { zIndex: 200, elevation: 8 }]}>
+            <TouchableOpacity 
+              style={{ flexDirection: 'row', alignItems: 'center' }}
+              onPress={handleNavigateToProfile}
+              activeOpacity={0.7}
+            >
+              <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.postAvatar} />
+              <View>
+                <Text style={[styles.postUser, darkMode && styles.postUserDark]}>{item.userName || 'Usuario'}</Text>
+                <Text style={[styles.postTime, darkMode && styles.postTimeDark]}>{formatRelativeTime(item.fecha)}</Text>
+              </View>
+            </TouchableOpacity>
+            <View style={{ position: 'relative' }}>
+              <TouchableOpacity onPress={() => setMenuOpen((v) => !v)}>
+                <MaterialIcons name="more-vert" size={22} color={darkMode ? '#ddd' : '#444'} />
+              </TouchableOpacity>
+              {menuOpen && (
+                <View style={{
+                  position: 'absolute',
+                  top: 26,
+                  right: 0,
+                  backgroundColor: darkMode ? '#1f1f1f' : '#fff',
+                  borderRadius: 8,
+                  paddingVertical: 6,
+                  paddingHorizontal: 8,
+                  minWidth: 160,
+                  elevation: 20,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 6,
+                  borderWidth: darkMode ? 0 : 1,
+                  borderColor: '#e5e7eb',
+                  zIndex: 9999,
+                }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      closeMenu();
+                      setReportModalVisible(true);
+                    }}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
+                  >
+                    <MaterialIcons name="flag" size={18} color="#FF3B30" />
+                    <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
-          <View style={{ position: 'relative' }}>
-            <TouchableOpacity onPress={() => setMenuOpen((v) => !v)}>
-              <MaterialIcons name="more-vert" size={22} color={darkMode ? '#ddd' : '#444'} />
-            </TouchableOpacity>
-            {menuOpen && (
-              <View style={{
-                position: 'absolute',
-                top: 26,
-                right: 0,
-                backgroundColor: darkMode ? '#1f1f1f' : '#fff',
-                borderRadius: 8,
-                paddingVertical: 6,
-                paddingHorizontal: 8,
-                minWidth: 160,
-                elevation: 20,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.25,
-                shadowRadius: 6,
-                borderWidth: darkMode ? 0 : 1,
-                borderColor: '#e5e7eb',
-                zIndex: 9999,
-              }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    setMenuOpen(false);
-                    setReportModalVisible(true);
-                  }}
-                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
-                >
-                  <MaterialIcons name="flag" size={18} color="#FF3B30" />
-                  <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        </View>
 
-        {isTextOnly && !!captionText && (
-          <>
-            <Text style={styles.captionText} numberOfLines={captionExpanded ? 0 : 8}>
-              <Text style={styles.captionUser}>{(item.userName || 'usuario')}</Text> {renderRichText(captionText)}
-            </Text>
-            {showMore && (
-              <TouchableOpacity onPress={() => setCaptionExpanded((e) => !e)} activeOpacity={0.8}>
-                <Text style={[styles.showMoreText, darkMode && { color: '#9aa0b0' }]}>
-                  {captionExpanded ? 'Ver menos' : 'Ver más'}
-                </Text>
+          {isTextOnly && !!captionText && (
+            <>
+              <Text style={styles.captionText} numberOfLines={captionExpanded ? 0 : 8}>
+                {renderRichText(captionText)}
+              </Text>
+              {showMore && (
+                <TouchableOpacity onPress={() => { closeMenu(); setCaptionExpanded((e) => !e); }} activeOpacity={0.8}>
+                  <Text style={[styles.showMoreText, darkMode && { color: '#9aa0b0' }]}>
+                    {captionExpanded ? 'Ver menos' : 'Ver más'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+
+          {item.mediaUrl && (item.mediaType === 'video' || item.mediaType === 'image') && (
+            <View style={[styles.mediaBox, darkMode && styles.mediaBoxDark]}>
+              {item.mediaType === 'video' ? (
+                <View style={{ width: '100%', height: '100%' }}>
+                  <Video
+                    ref={videoRef}
+                    source={{ uri: item.mediaUrl }}
+                    style={{ width: '100%', height: '100%' }}
+                    useNativeControls={false}
+                    resizeMode="cover"
+                    onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                    onLoadStart={() => { setIsBuffering(true); }}
+                    onLoad={() => { setIsBuffering(false); }}
+                    onReadyForDisplay={() => setIsBuffering(false)}
+                    shouldPlay={isVisible && isScreenFocused}
+                    isMuted={isMuted}
+                    isLooping={false}
+                    usePoster={!!thumbUri}
+                    posterSource={thumbUri ? { uri: thumbUri } : undefined}
+                  />
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={(e) => {
+                      closeMenu();
+                      if (!durationMillis) return;
+                      const x = e.nativeEvent.locationX;
+                      const ratio = barWidth ? Math.min(1, Math.max(0, x / barWidth)) : 0;
+                      videoRef.current?.setPositionAsync(Math.floor(ratio * durationMillis));
+                    }}
+                    onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+                    style={{ position: 'absolute', left: 12, right: 12, bottom: 12, height: 10, justifyContent: 'center' }}
+                  >
+                    <View style={{ height: 4, backgroundColor: '#ffffff90', borderRadius: 2, overflow: 'hidden' }}>
+                      <View style={{ height: 4, width: `${durationMillis ? Math.min(100, Math.max(0, (positionMillis / durationMillis) * 100)) : 0}%`, backgroundColor: '#007AFF', borderRadius: 2 }} />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => { closeMenu(); setIsMuted((m) => !m); }}
+                    style={{ position: 'absolute', right: 12, bottom: 28, backgroundColor: '#0008', padding: 8, borderRadius: 20 }}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name={isMuted ? 'volume-off' : 'volume-up'} size={22} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Image source={{ uri: item.mediaUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              )}
+            </View>
+          )}
+
+          <View style={styles.actionsRow}>
+            <View style={styles.actionsLeft}>
+              <TouchableOpacity onPress={() => { closeMenu(); handleLike(); }} activeOpacity={0.7} style={styles.actionBtnRow}>
+                <FontAwesome name={liked ? 'heart' : 'heart-o'} size={22} color={liked ? '#e74c3c' : (darkMode ? '#eee' : '#222')} />
+                <Text style={[styles.actionText, darkMode && styles.actionTextDark, liked && { color: '#e74c3c' }]}>Me gusta</Text>
               </TouchableOpacity>
-            )}
-          </>
-        )}
 
-        {item.mediaUrl && (item.mediaType === 'video' || item.mediaType === 'image') && (
-          <View style={[styles.mediaBox, darkMode && styles.mediaBoxDark]}>
-            {item.mediaType === 'video' ? (
-              <View style={{ width: '100%', height: '100%' }}>
-                <Video
-                  ref={videoRef}
-                  source={{ uri: item.mediaUrl }}
-                  style={{ width: '100%', height: '100%' }}
-                  useNativeControls={false}
-                  resizeMode="cover"
-                  onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                  onLoadStart={() => { setIsBuffering(true); }}
-                  onLoad={() => { setIsBuffering(false); }}
-                  onReadyForDisplay={() => setIsBuffering(false)}
-                  shouldPlay={isVisible && isScreenFocused}
-                  isMuted={isMuted}
-                  isLooping={false}
-                  usePoster={!!thumbUri}
-                  posterSource={thumbUri ? { uri: thumbUri } : undefined}
-                />
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  onPress={(e) => {
-                    if (!durationMillis) return;
-                    const x = e.nativeEvent.locationX;
-                    const ratio = barWidth ? Math.min(1, Math.max(0, x / barWidth)) : 0;
-                    videoRef.current?.setPositionAsync(Math.floor(ratio * durationMillis));
-                  }}
-                  onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
-                  style={{ position: 'absolute', left: 12, right: 12, bottom: 12, height: 10, justifyContent: 'center' }}
-                >
-                  <View style={{ height: 4, backgroundColor: '#ffffff90', borderRadius: 2, overflow: 'hidden' }}>
-                    <View style={{ height: 4, width: `${durationMillis ? Math.min(100, Math.max(0, (positionMillis / durationMillis) * 100)) : 0}%`, backgroundColor: '#007AFF', borderRadius: 2 }} />
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setIsMuted((m) => !m)}
-                  style={{ position: 'absolute', right: 12, bottom: 28, backgroundColor: '#0008', padding: 8, borderRadius: 20 }}
-                  activeOpacity={0.8}
-                >
-                  <MaterialIcons name={isMuted ? 'volume-off' : 'volume-up'} size={22} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <Image source={{ uri: item.mediaUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-            )}
-          </View>
-        )}
-
-        <View style={styles.actionsRow}>
-          <View style={styles.actionsLeft}>
-            <TouchableOpacity onPress={handleLike} activeOpacity={0.7} style={styles.actionBtnRow}>
-              <FontAwesome name={liked ? 'heart' : 'heart-o'} size={22} color={liked ? '#e74c3c' : (darkMode ? '#eee' : '#222')} />
-              <Text style={[styles.actionText, darkMode && styles.actionTextDark, liked && { color: '#e74c3c' }]}>Me gusta</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow}>
-              <FontAwesome name="comment-o" size={20} color={darkMode ? '#fff' : '#222'} />
-              <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Comentar</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow}>
-              <MaterialIcons name="share" size={22} color={darkMode ? '#fff' : '#222'} />
-              <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Compartir</Text>
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity onPress={() => setSaved((s) => !s)}>
-            <MaterialIcons name={saved ? 'bookmark' : 'bookmark-border'} size={26} color={darkMode ? '#eee' : '#222'} />
-          </TouchableOpacity>
-        </View>
-        <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{Math.max(0, likeCount)} Me gusta</Text>
-        {!isTextOnly && !!captionText && (
-          <>
-            <Text style={[styles.captionText, darkMode && styles.captionTextDark]} numberOfLines={captionExpanded ? 0 : 2}>
-              <Text style={styles.captionUser}>{(item.userName || 'usuario')}</Text> {renderRichText(captionText)}
-            </Text>
-            {showMore && (
-              <TouchableOpacity activeOpacity={0.8} onPress={() => setCaptionExpanded((e) => !e)}>
-                <Text style={[styles.showMoreText, darkMode && { color: '#9aa0b0' }]}>
-                  {captionExpanded ? 'Ver menos' : 'Ver más'}
-                </Text>
+              <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={closeMenu}>
+                <FontAwesome name="comment-o" size={20} color={darkMode ? '#fff' : '#222'} />
+                <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Comentar</Text>
               </TouchableOpacity>
-            )}
-          </>
-        )}
 
-        {item.etiquetas && item.etiquetas.length > 0 && (
-          <Etiquetas
-            etiquetasSeleccionadas={item.etiquetas}
-            mostrarSoloSeleccionadas={true}
-            estiloPersonalizado={{
-              container: { paddingHorizontal: 12, paddingVertical: 8 },
-              etiqueta: { backgroundColor: 'transparent', borderRadius: 12, marginRight: 6, marginBottom: 4 },
-              texto: { fontSize: 12, color: '#007AFF' },
-            }}
-          />
-        )}
+              <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={closeMenu}>
+                <MaterialIcons name="share" size={22} color={darkMode ? '#fff' : '#222'} />
+                <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Compartir</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={() => { closeMenu(); setSaved((s) => !s); }}>
+              <MaterialIcons name={saved ? 'bookmark' : 'bookmark-border'} size={26} color={darkMode ? '#eee' : '#222'} />
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{Math.max(0, likeCount)} Me gusta</Text>
+          {!isTextOnly && !!captionText && (
+            <>
+              <Text style={[styles.captionText, darkMode && styles.captionTextDark]} numberOfLines={captionExpanded ? 0 : 2}>
+                {renderRichText(captionText)}
+              </Text>
+              {showMore && (
+                <TouchableOpacity activeOpacity={0.8} onPress={() => { closeMenu(); setCaptionExpanded((e) => !e); }}>
+                  <Text style={[styles.showMoreText, darkMode && { color: '#9aa0b0' }]}>
+                    {captionExpanded ? 'Ver menos' : 'Ver más'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
 
-        <Text style={[styles.postTimeFooter, darkMode && styles.postTimeFooterDark]}>{formatRelativeTime(item.fecha)}</Text>
+          {item.etiquetas && item.etiquetas.length > 0 && (
+            <Etiquetas
+              etiquetasSeleccionadas={item.etiquetas}
+              mostrarSoloSeleccionadas={true}
+              estiloPersonalizado={{
+                container: { paddingHorizontal: 12, paddingVertical: 8 },
+                etiqueta: { backgroundColor: 'transparent', borderRadius: 12, marginRight: 6, marginBottom: 4 },
+                texto: { fontSize: 12, color: '#007AFF' },
+              }}
+            />
+          )}
+
+          <Text style={[styles.postTimeFooter, darkMode && styles.postTimeFooterDark]}>{formatRelativeTime(item.fecha)}</Text>
+        </View>
       </View>
 
       {/* Modal de reporte */}
@@ -357,7 +410,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused }) {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
-                <TouchableOpacity onPress={() => setReportModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
+                <TouchableOpacity onPress={() => { closeMenu(); setReportModalVisible(false); }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
                   <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -375,6 +428,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused }) {
                       };
                       const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
                       if (error) throw error;
+                      closeMenu();
                       setReportModalVisible(false);
                       setReportText('');
                       setReportReason('Contenido inapropiado');
@@ -439,4 +493,5 @@ const styles = StyleSheet.create({
   mentionText: { color: '#1976D2' },
   postTimeFooter: { color: '#999', fontSize: 12, paddingHorizontal: 12, marginTop: 6 },
   postTimeFooterDark: { color: '#9aa0b0' },
+  // Eliminado menuBackdrop porque ahora cerramos el menú por eventos directos
 });

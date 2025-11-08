@@ -12,7 +12,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext'; 
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { Video } from 'expo-av';
-// import ImageViewing from 'react-native-image-viewing'; // Removido por problemas de compatibilidad
+import CreatePublicationModal from '../publications/CreatePublicationModal';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -279,12 +279,8 @@ function PublicacionesTab({ usuario, darkMode }) {
   const [selectedPost, setSelectedPost] = useState(null);
   const [showZoom, setShowZoom] = useState(false);
 
-  // Modal y publicación
+  // Modal de publicación usando CreatePublicationModal
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const [newPost, setNewPost] = useState('');
-  const [previewMedia, setPreviewMedia] = useState(null);
-  const [mediaType, setMediaType] = useState(null);
-  const [uploading, setUploading] = useState(false);
 
   // Likes y comentarios visuales
   const [likes, setLikes] = useState(0);
@@ -293,13 +289,10 @@ function PublicacionesTab({ usuario, darkMode }) {
   const [videoKey, setVideoKey] = useState(0);
   const videoRef = useRef(null);
 
-  // Mantener el estado menuVisible
+  // Estado del menú (solo eliminar, no reportar en perfil propio)
   const [menuVisible, setMenuVisible] = useState(null);
-  const [reportModalVisible, setReportModalVisible] = useState(false);
-  const [reportReason, setReportReason] = useState('Contenido inapropiado');
-  const [reportText, setReportText] = useState('');
 
-  // Nuevo: confirmación estilizada para eliminar
+  // Confirmación estilizada para eliminar
   const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
   const [pendingDeletePost, setPendingDeletePost] = useState(null);
 
@@ -409,106 +402,17 @@ function PublicacionesTab({ usuario, darkMode }) {
     setPendingDeletePost(null);
   };
 
-  // Elegir imagen/video
-  const pickMedia = async (type) => {
-    let result;
-    if (Platform.OS === 'web') {
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: type === 'image'
-          ? ['image']
-          : type === 'video'
-          ? ['video']
-          : ['image', 'video'],
-        allowsEditing: false,
-        quality: 1,
-      });
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        setPreviewMedia(asset);
-        setMediaType(asset.type?.startsWith('video') ? 'video' : 'image');
-      }
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes:
-          type === 'image'
-            ? ImagePicker.MediaTypeOptions.Images
-            : type === 'video'
-            ? ImagePicker.MediaTypeOptions.Videos
-            : ImagePicker.MediaTypeOptions.All,
-        allowsEditing: false,
-        quality: 1,
-      });
-      if (!result.canceled) {
-        setPreviewMedia(result.assets[0]);
-        setMediaType(result.assets[0].type?.startsWith('video') ? 'video' : 'image');
-      }
+  const handlePublished = async () => {
+    setShowPublishModal(false);
+    // Recargar publicaciones
+    const { data, error } = await supabase
+      .from('publicaciones')
+      .select('*')
+      .eq('carnet_usuario', usuario.carnet)
+      .order('fecha_publicacion', { ascending: false });
+    if (!error && data) {
+      setPosts(data);
     }
-  };
-
-  // Subir publicación
-  const handleAddPost = async () => {
-    if (!newPost.trim() && !previewMedia) return;
-    setUploading(true);
-    try {
-      const carnet = usuario.carnet;
-      let publicUrl = null;
-      if (previewMedia?.uri) {
-        const uri = previewMedia.uri;
-        const fileName = uri.split('/').pop();
-        const fileType = fileName.split('.').pop();
-        const filePath = `${carnet}/publicaciones/${Date.now()}_${fileName}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: 'base64',
-        });
-        const fileBuffer = Buffer.from(base64, 'base64');
-        const { data, error: uploadError } = await supabase.storage
-          .from('multimedia')
-          .upload(filePath, fileBuffer, {
-            contentType: mediaType === 'video' ? `video/${fileType}` : `image/${fileType}`,
-            upsert: true,
-          });
-        if (uploadError) {
-          Alert.alert('Error', uploadError.message || 'No se pudo subir el archivo');
-          setUploading(false);
-          return;
-        }
-        const { data: publicData } = supabase
-          .storage
-          .from('multimedia')
-          .getPublicUrl(filePath);
-        publicUrl = publicData.publicUrl + `?t=${Date.now()}`;
-      }
-      await supabase
-        .from('publicaciones')
-        .insert([{
-          titulo: newPost,
-          archivo_url: publicUrl,
-          contenido: mediaType,
-          fecha_publicacion: new Date().toISOString(),
-          carnet_usuario: carnet,
-        }]);
-      setNewPost('');
-      setPreviewMedia(null);
-      setMediaType(null);
-      setShowPublishModal(false);
-      // Recargar publicaciones
-      const { data, error } = await supabase
-        .from('publicaciones')
-        .select('*')
-        .eq('carnet_usuario', usuario.carnet)
-        .order('fecha_publicacion', { ascending: false });
-      if (!error && data) {
-        const soloValidas = data.filter(
-          pub =>
-            !!pub.archivo_url &&
-            (pub.contenido === 'image' || pub.contenido === 'video')
-        );
-        setPosts(soloValidas);
-      }
-    } catch (err) {
-      Alert.alert('Error', 'Ocurrió un error inesperado.');
-    }
-    setUploading(false);
   };
 
   if (loading) {
@@ -585,84 +489,18 @@ function PublicacionesTab({ usuario, darkMode }) {
                   )}
                 </TouchableOpacity>
               ))}
-              {fila.length === 1 && <View style={{
-                flex: 1,
-                aspectRatio: 1,
-                marginHorizontal: 4,
-                backgroundColor: '#e7edf3',
-                borderRadius: 8,
-              }} />}
             </View>
           )))
         }
       </ScrollView>
+      
       {/* Modal para subir publicación */}
-      <Modal visible={showPublishModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Crear publicación</Text>
-            <TextInput
-              style={[styles.input, darkMode && styles.inputDark]}
-              placeholder="Escribe una historia o descripción..."
-              placeholderTextColor={darkMode ? "#bbb" : "#999"}
-              value={newPost}
-              onChangeText={setNewPost}
-              maxLength={280}
-              multiline
-            />
-            <Text style={styles.charCount}>{newPost.length}/280</Text>
-            {previewMedia && (
-              <View style={styles.previewContainer}>
-                {mediaType === 'video' && typeof Video !== 'undefined' ? (
-                  <Video
-                    source={{ uri: previewMedia.uri }}
-                    style={styles.previewMedia}
-                    useNativeControls
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <Image
-                    source={{ uri: previewMedia.uri }}
-                    style={styles.previewMedia}
-                    resizeMode="cover"
-                  />
-                )}
-                <TouchableOpacity
-                  style={styles.clearPreviewButton}
-                  onPress={() => {
-                    setPreviewMedia(null);
-                    setMediaType(null);
-                  }}
-                >
-                  <Text style={{ color: '#fff' }}>Quitar</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            <View style={styles.mediaRow}>
-              <TouchableOpacity onPress={() => pickMedia('image')} style={[styles.mediaButton, darkMode && styles.mediaButtonDark]} disabled={uploading}>
-                <Text style={styles.buttonText}>🖼️</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => pickMedia('video')} style={[styles.mediaButton, darkMode && styles.mediaButtonDark]} disabled={uploading}>
-                <Text style={styles.buttonText}>🎬</Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity
-              onPress={handleAddPost}
-              style={[
-                styles.button,
-                darkMode && styles.buttonDark,
-                { backgroundColor: (newPost.trim() || previewMedia) ? '#007bff' : '#aaa', marginTop: 12 }
-              ]}
-              disabled={uploading || (!newPost.trim() && !previewMedia)}
-            >
-              <Text style={styles.buttonText}>{uploading ? 'Publicando...' : 'Publicar'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowPublishModal(false)} style={[styles.button, darkMode && styles.buttonDark, { backgroundColor: '#FF3B30', marginTop: 8 }]}>
-              <Text style={styles.buttonText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <CreatePublicationModal
+        visible={showPublishModal}
+        onClose={() => setShowPublishModal(false)}
+        onPublished={handlePublished}
+      />
+      
       {/* Modal para ver publicación seleccionada */}
       <Modal
         visible={!!selectedPost}
@@ -703,16 +541,6 @@ function PublicacionesTab({ usuario, darkMode }) {
                       <TouchableOpacity
                         onPress={() => {
                           setMenuVisible(null);
-                          setReportModalVisible(true);
-                        }}
-                        style={styles.overlayMenuItem}
-                      >
-                        <MaterialIcons name="flag" size={18} color="#FF3B30" />
-                        <Text style={[styles.overlayMenuText, darkMode && styles.overlayMenuTextDark, { color: '#FF3B30' }]}>Reportar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setMenuVisible(null);
                           handleDeletePost(selectedPost);
                         }}
                         style={styles.overlayMenuItem}
@@ -728,7 +556,7 @@ function PublicacionesTab({ usuario, darkMode }) {
                 <>
                   <TouchableOpacity onPress={() => {
                     setShowZoom(true);
-                    setMenuVisible(null); // Añadir esta línea
+                    setMenuVisible(null);
                   }}>
                     <Image
                       source={{ uri: selectedPost.archivo_url }}
@@ -744,20 +572,20 @@ function PublicacionesTab({ usuario, darkMode }) {
                       setMenuVisible(null);
                     }}
                   >
-                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center' }}>
-                      <TouchableOpacity
-                        style={{ position: 'absolute', top: 50, right: 20, zIndex: 1 }}
+                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
+                      <TouchableOpacity 
+                        activeOpacity={1} 
+                        style={{ flex: 1 }} 
                         onPress={() => {
                           setShowZoom(false);
                           setMenuVisible(null);
                         }}
                       >
-                        <Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>×</Text>
+                        <Image
+                          source={{ uri: selectedPost.archivo_url }}
+                          style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
+                        />
                       </TouchableOpacity>
-                      <Image
-                        source={{ uri: selectedPost.archivo_url }}
-                        style={{ width: '90%', height: '80%', resizeMode: 'contain' }}
-                      />
                     </View>
                   </Modal>
                 </>
@@ -821,103 +649,7 @@ function PublicacionesTab({ usuario, darkMode }) {
           </View>
         </TouchableOpacity>
       </Modal>
-      {/* Modal de reporte de publicación */}
-      <Modal
-        visible={reportModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setReportModalVisible(false)}
-      >
-        <TouchableOpacity
-          activeOpacity={1}
-          onPressOut={() => setReportModalVisible(false)}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 16 }}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={{
-              width: '96%',
-              maxWidth: 420,
-              backgroundColor: darkMode ? '#171717' : '#fff',
-              borderRadius: 16,
-              padding: 16,
-            }}
-          >
-            <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 12 }}>
-              Reportar publicación
-            </Text>
-            <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginBottom: 10 }}>
-              Indica el motivo del reporte.
-            </Text>
-            {['Contenido inapropiado','Violencia','Odio o acoso','Spam o engaño','Otro'].map((motivo) => (
-              <TouchableOpacity
-                key={motivo}
-                onPress={() => setReportReason(motivo)}
-                style={{
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  borderRadius: 10,
-                  marginBottom: 8,
-                  borderWidth: 1,
-                  borderColor: reportReason === motivo ? '#FF3B30' : (darkMode ? '#333' : '#e5e7eb'),
-                  backgroundColor: reportReason === motivo ? (darkMode ? '#2a1b1b' : '#ffeceb') : 'transparent',
-                }}
-              >
-                <Text style={{ color: darkMode ? '#eee' : '#222', fontWeight: reportReason === motivo ? '700' : '500' }}>{motivo}</Text>
-              </TouchableOpacity>
-            ))}
-            <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
-            <TextInput
-              value={reportText}
-              onChangeText={setReportText}
-              placeholder="Describe brevemente el problema"
-              placeholderTextColor={darkMode ? '#888' : '#999'}
-              multiline
-              style={{
-                minHeight: 80,
-                borderWidth: 1,
-                borderColor: darkMode ? '#333' : '#e5e7eb',
-                borderRadius: 10,
-                padding: 10,
-                color: darkMode ? '#fff' : '#111',
-                backgroundColor: darkMode ? '#111' : '#fafafa',
-              }}
-            />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
-              <TouchableOpacity onPress={() => setReportModalVisible(false)} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
-                <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={async () => {
-                  try {
-                    const carnet = await AsyncStorage.getItem('carnet');
-                    if (!carnet || !selectedPost) throw new Error('No se pudo identificar al usuario o la publicación');
-                    const payload = {
-                      publicacion_id: selectedPost.id,
-                      carnet_reporta: carnet,
-                      carnet_publica: selectedPost.carnet_usuario || null,
-                      motivo: reportReason,
-                      detalle: reportText || null,
-                      created_at: new Date().toISOString(),
-                    };
-                    const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
-                    if (error) throw error;
-                    setReportModalVisible(false);
-                    setReportText('');
-                    setReportReason('Contenido inapropiado');
-                    Alert.alert('Gracias', 'Tu reporte ha sido enviado. Nuestro equipo lo revisará.');
-                  } catch (err) {
-                    Alert.alert('Error', err.message || 'No se pudo enviar el reporte.');
-                  }
-                }}
-                style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#FF3B30' }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Enviar reporte</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+      
       {/* Confirmación estilizada para eliminar */}
       <Modal transparent visible={confirmDeleteVisible} animationType="fade" onRequestClose={cancelDelete}>
         <View style={styles.confirmModalContainer}>

@@ -125,6 +125,11 @@ export default function App() {
             options={{ headerShown: false }}
           />
           <Stack.Screen
+            name="ViewUserProfile"
+            component={require('./profile/ViewUserProfile').default}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
             name="Publicaciones"
             component={PublicationsViewer}
             options={{ presentation: 'transparentModal', headerShown: false }}
