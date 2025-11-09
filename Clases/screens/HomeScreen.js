@@ -57,6 +57,7 @@ export default function HomeScreen({ onLogout, navigation }) {
   const [mostrarBuscador, setMostrarBuscador] = useState(false);
   // Token para forzar cierre de menús (FeedItem) ante acciones globales como buscar/filtrar
   const [feedInteractionToken, setFeedInteractionToken] = useState(0);
+  const slideAnimFiltros = useRef(new Animated.Value(600)).current;
 
   // Video prefetch is handled inside FeedItem now
 
@@ -149,6 +150,25 @@ export default function HomeScreen({ onLogout, navigation }) {
       fetchPostsFromDB();
     }
   }, [isFocused, fetchPostsFromDB]);
+
+  // Animación del modal de filtros
+  useEffect(() => {
+    if (mostrarFiltros) {
+      slideAnimFiltros.setValue(600);
+      Animated.spring(slideAnimFiltros, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    } else {
+      Animated.timing(slideAnimFiltros, {
+        toValue: 600,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [mostrarFiltros]);
 
   // Suscripción en tiempo real a publicaciones (insert/update/delete)
   useEffect(() => {
@@ -316,58 +336,67 @@ export default function HomeScreen({ onLogout, navigation }) {
       {/* Modal de Filtros por Etiquetas */}
       <Modal
         visible={mostrarFiltros}
-        animationType="slide"
+        animationType="fade"
         transparent={true}
         onRequestClose={() => setMostrarFiltros(false)}
       >
-        {/* Tocar fuera cierra el modal */}
-        <TouchableWithoutFeedback onPress={() => setMostrarFiltros(false)}>
-          <View style={styles.filterModalOverlay}>
-            {/* Evitar que toques dentro propaguen y cierren */}
-            <TouchableWithoutFeedback onPress={() => { /* consume el toque dentro */ }}>
-              <View style={[styles.filterModalContent, { backgroundColor: darkMode ? '#222' : '#fff' }]}>
-                <View style={styles.filterModalHeader}>
-                  <Text style={[styles.filterModalTitle, { color: darkMode ? '#ffffffff' : '#000000ff' }]}>
-                    Filtrar por Etiquetas
-                  </Text>
-                  <TouchableOpacity onPress={() => setMostrarFiltros(false)}>
-                    <MaterialIcons name="close" size={24} color={darkMode ? '#ffffffff' : '#000000ff'} />
-                  </TouchableOpacity>
-                </View>
-
-                <Etiquetas 
-                  etiquetasSeleccionadas={etiquetasFiltro}
-                  onEtiquetasChange={setEtiquetasFiltro}
-                  maxEtiquetas={10}
-                  estiloPersonalizado={{
-                    container: { paddingVertical: 0 },
-                    etiqueta: { borderRadius: 20 },
-                    texto: { fontSize: 14 }
-                  }}
-                />
-
-                <View style={styles.filterModalButtons}>
-                  <TouchableOpacity 
-                    style={[styles.filterModalButton, styles.clearButton]}
-                    onPress={() => {
-                      setEtiquetasFiltro([]);
-                      setMostrarFiltros(false);
-                    }}
-                  >
-                    <Text style={styles.clearButtonText}>Limpiar Filtros</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[styles.filterModalButton, styles.applyButton]}
-                    onPress={() => setMostrarFiltros(false)}
-                  >
-                    <Text style={styles.applyButtonText}>Aplicar</Text>
-                  </TouchableOpacity>
-                </View>
+        <TouchableOpacity 
+          style={styles.filterModalOverlay}
+          activeOpacity={1}
+          onPress={() => setMostrarFiltros(false)}
+        >
+          <Animated.View
+            style={[
+              styles.filterModalContent,
+              { backgroundColor: darkMode ? '#222' : '#fff' },
+              { transform: [{ translateY: slideAnimFiltros }] }
+            ]}
+          >
+            <TouchableOpacity 
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.filterModalHeader}>
+                <Text style={[styles.filterModalTitle, { color: darkMode ? '#ffffffff' : '#000000ff' }]}>
+                  Filtrar por Etiquetas
+                </Text>
+                <TouchableOpacity onPress={() => setMostrarFiltros(false)}>
+                  <MaterialIcons name="close" size={24} color={darkMode ? '#ffffffff' : '#000000ff'} />
+                </TouchableOpacity>
               </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+
+              <Etiquetas 
+                etiquetasSeleccionadas={etiquetasFiltro}
+                onEtiquetasChange={setEtiquetasFiltro}
+                maxEtiquetas={10}
+                estiloPersonalizado={{
+                  container: { paddingVertical: 0 },
+                  etiqueta: { borderRadius: 20 },
+                  texto: { fontSize: 14 }
+                }}
+              />
+
+              <View style={styles.filterModalButtons}>
+                <TouchableOpacity 
+                  style={[styles.filterModalButton, styles.clearButton]}
+                  onPress={() => {
+                    setEtiquetasFiltro([]);
+                    setMostrarFiltros(false);
+                  }}
+                >
+                  <Text style={styles.clearButtonText}>Limpiar Filtros</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.filterModalButton, styles.applyButton]}
+                  onPress={() => setMostrarFiltros(false)}
+                >
+                  <Text style={styles.applyButtonText}>Aplicar</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        </TouchableOpacity>
       </Modal>
 
       {/* Buscador de Usuarios */}

@@ -1,8 +1,11 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal } from 'react-native';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal, Alert } from 'react-native';
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../../Supabase/supabaseClient';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -16,29 +19,113 @@ export default function PublicationsViewer({ route, navigation }) {
 
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [likes, setLikes] = useState(posts[initialIndex]?.likes || 0);
+  const [likedByMe, setLikedByMe] = useState(false);
   const [comments, setComments] = useState(posts[initialIndex]?.comentarios || []);
+  const [commentCount, setCommentCount] = useState(posts[initialIndex]?.comentarios_count || comments.length || 0);
   const [newComment, setNewComment] = useState('');
   const [selectedPost, setSelectedPost] = useState(null);
+  const [carnet, setCarnet] = useState(null);
   const flatListRef = useRef();
   const videoRefs = useRef([]);
 
-  const onViewableItemsChanged = React.useRef(({ viewableItems }) => {
+  const onViewableItemsChanged = React.useRef(async ({ viewableItems }) => {
     if (viewableItems.length > 0) {
       const idx = viewableItems[0].index;
       setCurrentIndex(idx);
-      setLikes(posts[idx]?.likes || 0);
-      setComments(posts[idx]?.comentarios || []);
+      const post = posts[idx] || {};
+      const postId = post.id || post.publicacion_id || post.uuid;
+      if (postId) {
+        await Promise.all([
+          fetchLikes(postId),
+          fetchComments(postId),
+        ]);
+      } else {
+        setComments(post?.comentarios || []);
+      }
     }
   });
 
   const viewConfigRef = React.useRef({ viewAreaCoveragePercentThreshold: 50 });
 
-  const handleLike = () => setLikes(likes + 1);
+  const handleLike = async () => {
+    try {
+      const post = posts[currentIndex] || {};
+      const postId = post.id || post.publicacion_id || post.uuid;
+      if (!postId) return;
+      let c = carnet;
+      if (!c) {
+        c = await AsyncStorage.getItem('carnet');
+        if (!c) {
+          Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
+          return;
+        }
+        setCarnet(c);
+      }
 
-  const handleAddComment = () => {
-    if (newComment.trim()) {
-      setComments([...comments, { usuario: 'Tú', texto: newComment }]);
+      console.log('handleLike', { postId, carnet: c });
+
+      if (likedByMe) {
+        // Optimistic
+        setLikedByMe(false);
+        setLikes((prev) => Math.max(0, prev - 1));
+        const { error: delErr } = await supabase
+          .from('likes')
+          .delete()
+          .eq('publicacion_id', postId)
+          .eq('usuario_carnet', c);
+        if (delErr) {
+          console.error('Error DELETE like supabase:', delErr);
+          Alert.alert('Error al quitar like', delErr.message || '');
+        }
+      } else {
+        setLikedByMe(true);
+        setLikes((prev) => prev + 1);
+        // Intentar UPSERT para evitar duplicados silenciosos
+        const { data: insData, error } = await supabase
+          .from('likes')
+          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true })
+          .select('id')
+          .maybeSingle();
+        if (error) {
+          console.error('Error UPSERT like supabase:', error);
+          Alert.alert('Error al dar like', error.message || '');
+        } else {
+          console.log('UPSERT like ok', insData);
+        }
+      }
+      // Re-sincronizar con valor definitivo (trigger debe actualizar likes_count)
+      await fetchLikes(postId);
+    } catch (err) {
+      console.error('Error al togglear like:', err);
+      await refreshCurrentPostStates();
+    }
+  };
+
+  const handleAddComment = async () => {
+    try {
+      const text = newComment.trim();
+      if (!text) return;
+      const post = posts[currentIndex] || {};
+      const postId = post.id || post.publicacion_id || post.uuid;
+      if (!postId) return;
+      let c = carnet;
+      if (!c) {
+        c = await AsyncStorage.getItem('carnet');
+        if (!c) {
+          Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para comentar.');
+          return;
+        }
+        setCarnet(c);
+      }
+      const { error } = await supabase
+        .from('comentarios')
+        .insert({ publicacion_id: postId, usuario_carnet: c, contenido: text });
+      if (error) throw error;
       setNewComment('');
+      await fetchComments(postId);
+    } catch (err) {
+      console.error('Error al comentar:', err);
+      Alert.alert('Error', err.message || 'No se pudo publicar el comentario');
     }
   };
 
@@ -61,7 +148,7 @@ export default function PublicationsViewer({ route, navigation }) {
       <View style={styles.actionsRow}>
         <View style={styles.leftActions}>
           <TouchableOpacity onPress={handleLike} style={styles.actionBtn}>
-            <MaterialIcons name="favorite-border" size={26} color={darkMode ? '#eee' : '#222'} />
+            <MaterialIcons name={likedByMe ? 'favorite' : 'favorite-border'} size={26} color={likedByMe ? '#ff4d6d' : (darkMode ? '#eee' : '#222')} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn}>
             <MaterialIcons name="chat-bubble-outline" size={26} color={darkMode ? '#eee' : '#222'} />
@@ -78,7 +165,7 @@ export default function PublicationsViewer({ route, navigation }) {
       <View style={styles.likesRow}>
         <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{likes} Me gusta</Text>
       </View>
-      <Text style={[styles.commentsTitle, darkMode && styles.commentsTitleDark]}>Comentarios:</Text>
+  <Text style={[styles.commentsTitle, darkMode && styles.commentsTitleDark]}>Comentarios ({commentCount}):</Text>
       <ScrollView style={styles.commentsList}>
         {comments.length === 0 ? (
           <Text style={{ color: darkMode ? '#aaa' : '#888' }}>Sin comentarios.</Text>
@@ -114,6 +201,101 @@ export default function PublicationsViewer({ route, navigation }) {
     });
   }, [currentIndex]);
 
+  const fetchLikes = async (postId) => {
+    try {
+      const c = carnet || (await AsyncStorage.getItem('carnet'));
+      if (c && !carnet) setCarnet(c);
+
+      // 1) Traer likes_count desde publicaciones (evita contar filas)
+      const { data: pubData, error: pubErr } = await supabase
+        .from('publicaciones')
+        .select('likes_count')
+        .eq('id', postId)
+        .maybeSingle();
+      if (!pubErr && pubData && typeof pubData.likes_count === 'number') {
+        setLikes(pubData.likes_count);
+      }
+
+      // 2) Saber si YO ya di like
+      if (c) {
+        const { data: mine, error: mineErr } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('publicacion_id', postId)
+          .eq('usuario_carnet', c)
+          .maybeSingle();
+        if (!mineErr) setLikedByMe(!!mine);
+      } else {
+        setLikedByMe(false);
+      }
+    } catch (e) {
+      console.warn('fetchLikes error', e);
+    }
+  };
+
+  const fetchComments = async (postId) => {
+    try {
+      const [commentsRes, pubRes] = await Promise.all([
+        supabase
+          .from('comentarios')
+          .select('contenido, usuario_carnet, created_at')
+          .eq('publicacion_id', postId)
+          .order('created_at', { ascending: true })
+          .limit(50),
+        supabase
+          .from('publicaciones')
+          .select('comentarios_count')
+          .eq('id', postId)
+          .maybeSingle(),
+      ]);
+      if (commentsRes.error) throw commentsRes.error;
+      setComments((commentsRes.data || []).map(r => ({ usuario: r.usuario_carnet, texto: r.contenido, created_at: r.created_at })));
+      if (!pubRes.error && pubRes.data && typeof pubRes.data.comentarios_count === 'number') {
+        setCommentCount(pubRes.data.comentarios_count);
+      } else {
+        setCommentCount((commentsRes.data || []).length);
+      }
+    } catch (e) {
+      console.warn('fetchComments error', e);
+    }
+  };
+
+  const refreshCurrentPostStates = async () => {
+    const post = posts[currentIndex] || {};
+    const postId = post.id || post.publicacion_id || post.uuid;
+    if (postId) {
+      await Promise.all([fetchLikes(postId), fetchComments(postId)]);
+    }
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const c = await AsyncStorage.getItem('carnet');
+        if (c) setCarnet(c);
+        const post = posts[currentIndex] || posts[0] || {};
+        const postId = post.id || post.publicacion_id || post.uuid;
+        if (postId) await Promise.all([fetchLikes(postId), fetchComments(postId)]);
+      } catch (e) {
+        console.warn('init viewer error', e);
+      }
+    };
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Al volver a enfocar esta pantalla, re-sincroniza likes y comentarios del post visible
+  useFocusEffect(
+    useCallback(() => {
+      const post = posts[currentIndex] || posts[0] || {};
+      const postId = post.id || post.publicacion_id || post.uuid;
+      if (postId) {
+        refreshCurrentPostStates();
+      }
+      return () => {};
+    }, [currentIndex, posts])
+  );
+
   return (
     <View style={[styles.overlay, darkMode && styles.overlayDark]}>
       <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.closeButton, darkMode && styles.closeButtonDark]}>
@@ -123,7 +305,7 @@ export default function PublicationsViewer({ route, navigation }) {
         ref={flatListRef}
         data={posts}
         renderItem={renderItem}
-        keyExtractor={(_, idx) => idx.toString()}
+        keyExtractor={(item, idx) => (item?.id ? String(item.id) : String(idx))}
         pagingEnabled
         horizontal={false}
         initialScrollIndex={initialIndex}

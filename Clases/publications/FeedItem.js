@@ -35,6 +35,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(item.likes || 0);
   const [saved, setSaved] = useState(false);
+  const [carnet, setCarnet] = useState(null);
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const captionText = (item.text || '').trim();
   const isTextOnly = !item.mediaUrl || !(['image','video'].includes(item.mediaType));
@@ -79,6 +80,39 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       closeMenu();
     }
   }, [closeSignal]);
+
+  // Cargar estado de likes al montar o cuando el item se hace visible
+  useEffect(() => {
+    if (isVisible && item.id) {
+      (async () => {
+        try {
+          const c = await AsyncStorage.getItem('carnet');
+          if (c) {
+            setCarnet(c);
+            // Verificar si ya di like
+            const { data: mine } = await supabase
+              .from('likes')
+              .select('id')
+              .eq('publicacion_id', item.id)
+              .eq('usuario_carnet', c)
+              .maybeSingle();
+            setLiked(!!mine);
+          }
+          // Traer contador actualizado
+          const { data: pubData } = await supabase
+            .from('publicaciones')
+            .select('likes_count')
+            .eq('id', item.id)
+            .maybeSingle();
+          if (pubData && typeof pubData.likes_count === 'number') {
+            setLikeCount(pubData.likes_count);
+          }
+        } catch (e) {
+          console.warn('Error loading like state:', e);
+        }
+      })();
+    }
+  }, [isVisible, item.id]);
 
   // Función para navegar al perfil del usuario
   const handleNavigateToProfile = async () => {
@@ -157,9 +191,75 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     return parts;
   };
 
-  const handleLike = () => {
-    setLiked((p) => !p);
-    setLikeCount((c) => (liked ? Math.max(0, c - 1) : c + 1));
+  const handleLike = async () => {
+    try {
+      const postId = item.id;
+      if (!postId) return;
+      
+      let c = carnet;
+      if (!c) {
+        c = await AsyncStorage.getItem('carnet');
+        if (!c) {
+          console.warn('No carnet found for like');
+          return;
+        }
+        setCarnet(c);
+      }
+
+      console.log('FeedItem handleLike', { postId, carnet: c });
+
+      if (liked) {
+        // Optimistic unlike
+        setLiked(false);
+        setLikeCount((prev) => Math.max(0, prev - 1));
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('publicacion_id', postId)
+          .eq('usuario_carnet', c);
+        if (error) {
+          console.error('Error DELETE like:', error);
+          setLiked(true);
+          setLikeCount((prev) => prev + 1);
+        }
+      } else {
+        // Optimistic like
+        setLiked(true);
+        setLikeCount((prev) => prev + 1);
+        const { data, error } = await supabase
+          .from('likes')
+          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true })
+          .select('id')
+          .maybeSingle();
+        if (error) {
+          console.error('Error UPSERT like:', error);
+          setLiked(false);
+          setLikeCount((prev) => Math.max(0, prev - 1));
+        } else {
+          console.log('UPSERT like ok', data);
+        }
+      }
+
+      // Re-sync from DB
+      const { data: pubData } = await supabase
+        .from('publicaciones')
+        .select('likes_count')
+        .eq('id', postId)
+        .maybeSingle();
+      if (pubData && typeof pubData.likes_count === 'number') {
+        setLikeCount(pubData.likes_count);
+      }
+
+      const { data: mine } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('publicacion_id', postId)
+        .eq('usuario_carnet', c)
+        .maybeSingle();
+      setLiked(!!mine);
+    } catch (err) {
+      console.error('handleLike error:', err);
+    }
   };
 
   const handlePlaybackStatusUpdate = (s) => {
