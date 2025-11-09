@@ -1,7 +1,8 @@
-import React, { useState } from "react";
-import { View, Text, TextInput, Button, ActivityIndicator, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Image } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, TextInput, Button, ActivityIndicator, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Image, Modal, ScrollView, Animated } from "react-native";
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Picker } from '@react-native-picker/picker';
 import { supabase } from "../../Supabase/supabaseClient";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -27,6 +28,41 @@ export default function LoginScreen({ onLogin }) {
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState(null);
   const [regSuccess, setRegSuccess] = useState(false);
+  const [showCarreraModal, setShowCarreraModal] = useState(false);
+  const slideAnim = useRef(new Animated.Value(600)).current;
+
+  const carreras = [
+    "Administración Aduanera y Comercio Exterior",
+    "Bibliotecología Énfasis Bibliotecas Educativas",
+    "Ciencias de la Educación Primaria con Concentración en Inglés",
+    "Ciencias de la Educación Primaria con Énfasis en Educación Primaria",
+    "Diseño Gráfico",
+    "Economía Agrícola y Agronegocios",
+    "Educación Matemática",
+    "Enseñanza de las Ciencias Naturales",
+    "Informática Empresarial",
+    "Inglés",
+    "Turismo Ecológico",
+  ];
+
+  useEffect(() => {
+    if (showCarreraModal) {
+      // Reset position before animating in
+      slideAnim.setValue(600);
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: 600,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showCarreraModal]);
 
   const handleChange = (name, value) => {
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -128,9 +164,9 @@ export default function LoginScreen({ onLogin }) {
 
         const { carnet, nombre, apellido, correo, carrera } = regForm;
 
-        // Validaciones: carnet y correo obligatorios
-        if (!carnet || !correo) {
-          throw new Error('Carnet y correo son obligatorios');
+        // Validaciones: carnet, nombre, apellido y correo obligatorios
+        if (!carnet || !correo || !nombre || !apellido) {
+          throw new Error('Carnet, nombre, apellido y correo son obligatorios');
         }
         if (!validarEmail(correo)) {
           throw new Error('Correo no válido');
@@ -142,8 +178,8 @@ export default function LoginScreen({ onLogin }) {
         const { data, error: registerError } = await supabase.functions.invoke('user-signup', {
           body: {
             carnet: carnet.trim(),
-            nombre: nombre?.trim() || null,
-            apellido: apellido?.trim() || null,
+            nombre: nombre.trim(),
+            apellido: apellido.trim(),
             correo: correo.trim().toLowerCase(),
             carrera: carrera?.trim() || null,
           }
@@ -349,13 +385,20 @@ export default function LoginScreen({ onLogin }) {
                     </View>
 
                     <View style={{ 
-                      flexDirection: responsive.isMobile ? 'column' : 'row', 
-                      gap: responsive.spacing.sm, 
+                      flexDirection: 'row',
+                      flexWrap: 'wrap',
+                      justifyContent: 'space-between',
                       width: '100%',
                       marginBottom: responsive.spacing.md,
                     }}>
-                      <View style={[styles.inputGroupBetter, { flex: 1, marginBottom: 0 }]}> 
-                        <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Nombre (opcional)</Text>
+                      <View style={[
+                        styles.inputGroupBetter,
+                        { 
+                          width: responsive.isMobile ? '100%' : '48%',
+                          marginBottom: 0,
+                        }
+                      ]}> 
+                        <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Nombre *</Text>
                         <View style={styles.inputIconRowBetter}>
                           <TextInput
                             style={[styles.inputBetter, { fontSize: responsive.fontSize.md }]}
@@ -367,8 +410,15 @@ export default function LoginScreen({ onLogin }) {
                           />
                         </View>
                       </View>
-                      <View style={[styles.inputGroupBetter, { flex: 1, marginBottom: 0 }]}> 
-                        <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Apellido (opcional)</Text>
+                      <View style={[
+                        styles.inputGroupBetter,
+                        { 
+                          width: responsive.isMobile ? '100%' : '48%',
+                          marginBottom: 0,
+                          ...(responsive.isMobile ? { marginTop: responsive.spacing.sm } : null),
+                        }
+                      ]}> 
+                        <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Apellido *</Text>
                         <View style={styles.inputIconRowBetter}>
                           <TextInput
                             style={[styles.inputBetter, { fontSize: responsive.fontSize.md }]}
@@ -401,17 +451,101 @@ export default function LoginScreen({ onLogin }) {
 
                     <View style={[styles.inputGroupBetter, { marginBottom: responsive.spacing.md }]}>
                       <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Carrera (opcional)</Text>
-                      <View style={styles.inputIconRowBetter}>
-                        <TextInput
-                          style={[styles.inputBetter, { fontSize: responsive.fontSize.md }]}
-                          placeholder="Ing. Sistemas, Derecho, ..."
-                          placeholderTextColor="#aaa"
-                          value={regForm.carrera}
-                          onChangeText={(text) => handleRegChange('carrera', text)}
-                          editable={!regLoading}
-                        />
-                      </View>
+                      <TouchableOpacity 
+                        style={[styles.pickerContainer, { 
+                          backgroundColor: '#fff', 
+                          borderColor: '#c7d2e1',
+                          height: 55,
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexDirection: 'row',
+                          paddingHorizontal: 12,
+                        }]}
+                        onPress={() => setShowCarreraModal(true)}
+                        disabled={regLoading}
+                      >
+                        <Text style={{ 
+                          color: regForm.carrera ? '#1a1a2e' : '#888', 
+                          fontSize: responsive.fontSize.md,
+                          fontWeight: regForm.carrera ? '500' : '400',
+                          flex: 1,
+                        }} numberOfLines={1}>
+                          {regForm.carrera || "Selecciona tu carrera"}
+                        </Text>
+                        <Icon name="arrow-drop-down" size={24} color="#007AFF" />
+                      </TouchableOpacity>
                     </View>
+
+                    {/* Modal para seleccionar carrera */}
+                    <Modal
+                      visible={showCarreraModal}
+                      transparent={true}
+                      animationType="fade"
+                      onRequestClose={() => setShowCarreraModal(false)}
+                    >
+                      <TouchableOpacity 
+                        style={styles.modalOverlay}
+                        activeOpacity={1}
+                        onPress={() => setShowCarreraModal(false)}
+                      >
+                        <Animated.View
+                          style={[
+                            styles.modalContent,
+                            {
+                              transform: [{ translateY: slideAnim }]
+                            }
+                          ]}
+                        >
+                          <TouchableOpacity 
+                            activeOpacity={1}
+                            onPress={(e) => e.stopPropagation()}
+                          >
+                          <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Selecciona tu carrera</Text>
+                            <TouchableOpacity onPress={() => setShowCarreraModal(false)}>
+                              <Icon name="close" size={28} color="#333" />
+                            </TouchableOpacity>
+                          </View>
+                          <ScrollView style={styles.modalScrollView}>
+                            <TouchableOpacity
+                              style={styles.modalItem}
+                              onPress={() => {
+                                handleRegChange('carrera', '');
+                                setShowCarreraModal(false);
+                              }}
+                            >
+                              <Text style={[styles.modalItemText, { color: '#888', fontStyle: 'italic' }]}>
+                                Sin seleccionar
+                              </Text>
+                            </TouchableOpacity>
+                            {carreras.map((carrera, index) => (
+                              <TouchableOpacity
+                                key={index}
+                                style={[
+                                  styles.modalItem,
+                                  regForm.carrera === carrera && styles.modalItemSelected
+                                ]}
+                                onPress={() => {
+                                  handleRegChange('carrera', carrera);
+                                  setShowCarreraModal(false);
+                                }}
+                              >
+                                <Text style={[
+                                  styles.modalItemText,
+                                  regForm.carrera === carrera && styles.modalItemTextSelected
+                                ]}>
+                                  {carrera}
+                                </Text>
+                                {regForm.carrera === carrera && (
+                                  <Icon name="check" size={22} color="#007AFF" />
+                                )}
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                          </TouchableOpacity>
+                        </Animated.View>
+                      </TouchableOpacity>
+                    </Modal>
 
                     <View style={{ 
                       backgroundColor: '#e7f3ff', 
@@ -912,8 +1046,75 @@ const styles = StyleSheet.create({
   illustration: {
     width: 180,
     height: 60,
-    borderRadius: 18,
+    borderRadius: 30,
     backgroundColor: '#e3f0fc',
     opacity: 0.7,
+  },
+  pickerContainer: {
+    borderWidth: 1.5,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  picker: {
+    height: 55,
+    width: '100%',
+    fontSize: 15,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e5e5',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1a1a2e',
+  },
+  modalScrollView: {
+    maxHeight: 400,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalItemSelected: {
+    backgroundColor: '#e6f0ff',
+  },
+  modalItemText: {
+    fontSize: 15,
+    color: '#333',
+    flex: 1,
+    flexWrap: 'wrap',
+    lineHeight: 22,
+  },
+  modalItemTextSelected: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });
