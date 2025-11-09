@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal, Alert } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, ScrollView, Dimensions, Modal, Alert, Pressable } from 'react-native';
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -23,8 +23,12 @@ export default function PublicationsViewer({ route, navigation }) {
   const [comments, setComments] = useState(posts[initialIndex]?.comentarios || []);
   const [commentCount, setCommentCount] = useState(posts[initialIndex]?.comentarios_count || comments.length || 0);
   const [newComment, setNewComment] = useState('');
+  const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
   const [carnet, setCarnet] = useState(null);
+  const [deleteCommentModalVisible, setDeleteCommentModalVisible] = useState(false);
+  const [commentToDelete, setCommentToDelete] = useState(null);
+  const profileCacheRef = useRef(new Map()); // carnet -> { nombre, apellido, foto_perfil }
   const flatListRef = useRef();
   const videoRefs = useRef([]);
 
@@ -129,6 +133,37 @@ export default function PublicationsViewer({ route, navigation }) {
     }
   };
 
+  const handleDeleteComment = async (commentItem) => {
+    setCommentToDelete(commentItem);
+    setDeleteCommentModalVisible(true);
+  };
+
+  const confirmDeleteComment = async () => {
+    try {
+      if (!commentToDelete) return;
+      const post = posts[currentIndex] || {};
+      const postId = post.id || post.publicacion_id || post.uuid;
+      if (!postId) return;
+      
+      const { error } = await supabase
+        .from('comentarios')
+        .delete()
+        .eq('publicacion_id', postId)
+        .eq('usuario_carnet', commentToDelete.usuario)
+        .eq('contenido', commentToDelete.texto)
+        .eq('created_at', commentToDelete.created_at);
+      if (error) throw error;
+      await fetchComments(postId);
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    } catch (err) {
+      console.error('Error al eliminar comentario:', err);
+      Alert.alert('Error', 'No se pudo eliminar el comentario.');
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    }
+  };
+
   const renderItem = ({ item, index }) => (
     <View style={[styles.detailContainer, darkMode && styles.detailContainerDark]}>
       <View style={styles.headerRow}>
@@ -147,11 +182,18 @@ export default function PublicationsViewer({ route, navigation }) {
       </View>
       <View style={styles.actionsRow}>
         <View style={styles.leftActions}>
-          <TouchableOpacity onPress={handleLike} style={styles.actionBtn}>
+          <TouchableOpacity onPress={handleLike} style={[styles.actionBtn, styles.actionBtnRow]}>
             <MaterialIcons name={likedByMe ? 'favorite' : 'favorite-border'} size={26} color={likedByMe ? '#ff4d6d' : (darkMode ? '#eee' : '#222')} />
+            <Text style={[styles.actionCountInline, darkMode && styles.actionCountTextDark]}>{Math.max(0, likes)}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn}>
+          <TouchableOpacity style={[styles.actionBtn, styles.actionBtnRow]} onPress={() => {
+            const post = posts[currentIndex] || posts[0] || {};
+            const postId = post.id || post.publicacion_id || post.uuid;
+            if (postId) fetchComments(postId);
+            setShowCommentModal(true);
+          }}>
             <MaterialIcons name="chat-bubble-outline" size={26} color={darkMode ? '#eee' : '#222'} />
+            <Text style={[styles.actionCountInline, darkMode && styles.actionCountTextDark]}>{Math.max(0, commentCount)}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionBtn}>
             <MaterialIcons name="share" size={26} color={darkMode ? '#eee' : '#222'} />
@@ -162,34 +204,7 @@ export default function PublicationsViewer({ route, navigation }) {
         </TouchableOpacity>
       </View>
       <Text style={[styles.captionTitle, darkMode && styles.captionTitleDark]}>{item.titulo}</Text>
-      <View style={styles.likesRow}>
-        <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{likes} Me gusta</Text>
-      </View>
-  <Text style={[styles.commentsTitle, darkMode && styles.commentsTitleDark]}>Comentarios ({commentCount}):</Text>
-      <ScrollView style={styles.commentsList}>
-        {comments.length === 0 ? (
-          <Text style={{ color: darkMode ? '#aaa' : '#888' }}>Sin comentarios.</Text>
-        ) : (
-          comments.map((c, idx) => (
-            <Text key={idx} style={{ marginBottom: 2, color: darkMode ? '#e5e7eb' : '#222' }}>
-              <Text style={{ fontWeight: 'bold' }}>{c.usuario}: </Text>
-              {c.texto}
-            </Text>
-          ))
-        )}
-      </ScrollView>
-      <View style={styles.commentInputRow}>
-        <TextInput
-          style={[styles.input, darkMode && styles.inputDark, { flex: 1, height: 40, marginBottom: 0, color: darkMode ? '#e5e7eb' : '#222' }]}
-          placeholder="Escribe un comentario..."
-          placeholderTextColor={darkMode ? '#8b93a3' : '#888'}
-          value={newComment}
-          onChangeText={setNewComment}
-        />
-        <TouchableOpacity onPress={handleAddComment} style={{ marginLeft: 8 }}>
-          <MaterialIcons name="send" size={24} color="#007AFF" />
-        </TouchableOpacity>
-      </View>
+      {/* Comentarios se ven ahora en modal aparte */}
     </View>
   );
 
@@ -249,7 +264,36 @@ export default function PublicationsViewer({ route, navigation }) {
           .maybeSingle(),
       ]);
       if (commentsRes.error) throw commentsRes.error;
-      setComments((commentsRes.data || []).map(r => ({ usuario: r.usuario_carnet, texto: r.contenido, created_at: r.created_at })));
+      const rows = commentsRes.data || [];
+
+      // Build unique carnet list and fetch missing profiles (cache-aware)
+      const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+      const cache = profileCacheRef.current;
+      const missing = uniqueCarnets.filter(c => !cache.has(c));
+      if (missing.length > 0) {
+        try {
+          const { data: usuariosData, error: usuariosErr } = await supabase
+            .from('usuarios')
+            .select('carnet, nombre, apellido, foto_perfil')
+            .in('carnet', missing);
+          if (!usuariosErr && Array.isArray(usuariosData)) {
+            usuariosData.forEach(u => {
+              cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
+            });
+          }
+        } catch (_) {
+          // ignore profile fetch errors individually
+        }
+      }
+
+      const enriched = rows.map(r => {
+        const prof = cache.get(r.usuario_carnet);
+        const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
+        const avatarUrl = prof?.foto_perfil || null;
+        return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+      });
+
+      setComments(enriched);
       if (!pubRes.error && pubRes.data && typeof pubRes.data.comentarios_count === 'number') {
         setCommentCount(pubRes.data.comentarios_count);
       } else {
@@ -339,6 +383,103 @@ export default function PublicationsViewer({ route, navigation }) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Modal de comentarios */}
+      <Modal transparent animationType="fade" visible={showCommentModal} onRequestClose={() => setShowCommentModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: height * 0.75, width: '100%', paddingBottom: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e' }}>Comentarios ({commentCount})</Text>
+              <TouchableOpacity onPress={() => setShowCommentModal(false)}>
+                <MaterialIcons name="close" size={26} color={darkMode ? '#e5e7eb' : '#333'} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={comments}
+              keyExtractor={(c, idx) => `${c.created_at}-${idx}`}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}
+              showsVerticalScrollIndicator={false}
+              ListEmptyComponent={<Text style={{ color: darkMode ? '#aaa' : '#666', textAlign: 'center', marginTop: 20 }}>Sin comentarios aún.</Text>}
+              renderItem={({ item: c }) => {
+                const isMyComment = carnet && c.usuario === carnet;
+                return (
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: darkMode ? '#333' : '#eee' }}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={async () => {
+                      let me = carnet;
+                      if (!me) {
+                        try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
+                      }
+                      // Cerrar modal antes de navegar
+                      setShowCommentModal(false);
+                      if (me && me === c.usuario) {
+                        navigation.navigate('Perfil');
+                      } else {
+                        navigation.navigate('ViewUserProfile', { userId: c.usuario });
+                      }
+                    }}
+                    style={{ marginRight: 10 }}
+                  >
+                    {c.avatarUrl ? (
+                      <Image source={{ uri: c.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#eee' }} />
+                    ) : (
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#e6eef8', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ color: darkMode ? '#ddd' : '#0b2545', fontWeight: '700' }}>{(c.displayName || c.usuario || 'U').charAt(0).toUpperCase()}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    activeOpacity={1}
+                    onLongPress={() => {
+                      if (isMyComment) handleDeleteComment(c);
+                    }}
+                  >
+                    <Text style={{ color: darkMode ? '#e5e7eb' : '#222' }}>
+                      <Text style={{ fontWeight: 'bold' }}>{c.displayName || c.usuario}</Text>
+                    </Text>
+                    <Text style={{ color: darkMode ? '#cbd5e1' : '#444', marginTop: 2 }}>{c.texto}</Text>
+                  </TouchableOpacity>
+                </View>
+                );
+              }}
+              style={{ maxHeight: height * 0.55 }}
+            />
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#e5e5e5' }}>
+              <TextInput
+                style={{ flex: 1, borderWidth: 1, borderColor: darkMode ? '#333' : '#e1e7ef', backgroundColor: darkMode ? '#111' : '#fff', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, color: darkMode ? '#e5e7eb' : '#222' }}
+                placeholder="Escribe un comentario..."
+                placeholderTextColor={darkMode ? '#8b93a3' : '#888'}
+                value={newComment}
+                onChangeText={setNewComment}
+                multiline
+              />
+              <TouchableOpacity onPress={async () => { await handleAddComment(); }} style={{ marginLeft: 10 }}>
+                <MaterialIcons name="send" size={24} color="#007AFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal estilizado para eliminar comentario */}
+      <Modal transparent animationType="fade" visible={deleteCommentModalVisible} onRequestClose={() => setDeleteCommentModalVisible(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setDeleteCommentModalVisible(false)}>
+          <Pressable style={{ width: '85%', maxWidth: 400, backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderRadius: 16, padding: 24, elevation: 10 }} onPress={(e) => e.stopPropagation()}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e', marginBottom: 12, textAlign: 'center' }}>Eliminar comentario</Text>
+            <Text style={{ fontSize: 15, color: darkMode ? '#cbd5e1' : '#666', marginBottom: 24, textAlign: 'center' }}>¿Estás seguro de que quieres eliminar este comentario?</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+              <TouchableOpacity onPress={() => setDeleteCommentModalVisible(false)} style={{ flex: 1, paddingVertical: 12, backgroundColor: darkMode ? '#333' : '#e5e5e5', borderRadius: 10, alignItems: 'center' }}>
+                <Text style={{ color: darkMode ? '#e5e7eb' : '#222', fontSize: 16, fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmDeleteComment} style={{ flex: 1, paddingVertical: 12, backgroundColor: '#FF3B30', borderRadius: 10, alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -362,10 +503,14 @@ const styles = StyleSheet.create({
   actionsRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8 },
   leftActions: { flexDirection: 'row' },
   actionBtn: { marginRight: 12 },
+  actionBtnRow: { flexDirection: 'row', alignItems: 'center' },
   captionTitle: { fontSize: 16, fontWeight: '700', color: '#0b2545', paddingHorizontal: 10, marginBottom: 6 },
   captionTitleDark: { color: '#e5e7eb' },
   likesText: { color: '#222', paddingHorizontal: 10, marginBottom: 6 },
   likesTextDark: { color: '#e5e7eb' },
+  actionCountText: { fontSize: 11, color: '#444', marginTop: 2 },
+  actionCountInline: { fontSize: 12, color: '#444', marginLeft: 6 },
+  actionCountTextDark: { color: '#ddd' },
   title: { fontSize: 18, fontWeight: '800', marginBottom: 8, color: '#0b2545', textAlign: 'left', alignSelf: 'stretch', marginLeft: 6 },
   likesRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, alignSelf: 'stretch', marginLeft: 6 },
   commentsTitle: { fontWeight: '700', marginBottom: 6, color: '#233547', alignSelf: 'flex-start', marginLeft: 6 },

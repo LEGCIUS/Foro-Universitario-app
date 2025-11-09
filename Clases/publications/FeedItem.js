@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, AppState, TextInput } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, AppState, TextInput, Modal, FlatList, ScrollView, Pressable, Alert } from 'react-native';
 import { Video } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Asset } from 'expo-asset';
@@ -53,6 +53,14 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportReason, setReportReason] = useState('Contenido inapropiado');
   const [reportText, setReportText] = useState('');
+  // Comentarios (modal básico)
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [commentCount, setCommentCount] = useState(item.comentarios_count || 0);
+  const [deleteCommentModalVisible, setDeleteCommentModalVisible] = useState(false);
+  const [commentToDelete, setCommentToDelete] = useState(null);
+  const profileCacheRef = useRef(new Map()); // carnet -> { nombre, apellido, foto_perfil }
   const videoRef = useRef(null);
   const thumbCacheRef = useRef(new Map());
   const prefetchingRef = useRef(new Set());
@@ -101,11 +109,12 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
           // Traer contador actualizado
           const { data: pubData } = await supabase
             .from('publicaciones')
-            .select('likes_count')
+            .select('likes_count, comentarios_count')
             .eq('id', item.id)
             .maybeSingle();
-          if (pubData && typeof pubData.likes_count === 'number') {
-            setLikeCount(pubData.likes_count);
+          if (pubData) {
+            if (typeof pubData.likes_count === 'number') setLikeCount(pubData.likes_count);
+            if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
           }
         } catch (e) {
           console.warn('Error loading like state:', e);
@@ -243,11 +252,12 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       // Re-sync from DB
       const { data: pubData } = await supabase
         .from('publicaciones')
-        .select('likes_count')
+        .select('likes_count, comentarios_count')
         .eq('id', postId)
         .maybeSingle();
-      if (pubData && typeof pubData.likes_count === 'number') {
-        setLikeCount(pubData.likes_count);
+      if (pubData) {
+        if (typeof pubData.likes_count === 'number') setLikeCount(pubData.likes_count);
+        if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
       }
 
       const { data: mine } = await supabase
@@ -259,6 +269,104 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       setLiked(!!mine);
     } catch (err) {
       console.error('handleLike error:', err);
+    }
+  };
+
+  const openComments = async () => {
+    try {
+      if (!item?.id) return;
+      const { data, error } = await supabase
+        .from('comentarios')
+        .select('contenido, usuario_carnet, created_at')
+        .eq('publicacion_id', item.id)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      if (!error) {
+        const rows = data || [];
+        const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+        const cache = profileCacheRef.current;
+        const missing = uniqueCarnets.filter(c => !cache.has(c));
+        if (missing.length > 0) {
+          try {
+            const { data: usuariosData, error: usuariosErr } = await supabase
+              .from('usuarios')
+              .select('carnet, nombre, apellido, foto_perfil')
+              .in('carnet', missing);
+            if (!usuariosErr && Array.isArray(usuariosData)) {
+              usuariosData.forEach(u => {
+                cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
+              });
+            }
+          } catch (_) {}
+        }
+
+        const enriched = rows.map(r => {
+          const prof = cache.get(r.usuario_carnet);
+          const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
+          const avatarUrl = prof?.foto_perfil || null;
+          return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+        });
+        setComments(enriched);
+        // Sync comment count (fallback to loaded rows if DB count absent)
+        try {
+          const { data: pubRow, error: pubErr } = await supabase
+            .from('publicaciones')
+            .select('comentarios_count')
+            .eq('id', item.id)
+            .maybeSingle();
+          if (!pubErr && pubRow && typeof pubRow.comentarios_count === 'number') {
+            setCommentCount(pubRow.comentarios_count);
+          } else {
+            setCommentCount(rows.length);
+          }
+        } catch (_) {
+          setCommentCount(rows.length);
+        }
+      }
+      setCommentModalVisible(true);
+    } catch {}
+  };
+
+  const handleAddComment = async () => {
+    try {
+      const text = newComment.trim();
+      if (!text || !item?.id) return;
+      let c = carnet || (await AsyncStorage.getItem('carnet'));
+      if (!c) return;
+      const { error } = await supabase
+        .from('comentarios')
+        .insert({ publicacion_id: item.id, usuario_carnet: c, contenido: text });
+      if (!error) {
+        setNewComment('');
+        await openComments();
+      }
+    } catch {}
+  };
+
+  const handleDeleteComment = async (commentItem) => {
+    setCommentToDelete(commentItem);
+    setDeleteCommentModalVisible(true);
+  };
+
+  const confirmDeleteComment = async () => {
+    try {
+      if (!commentToDelete || !item?.id) return;
+      
+      const { error } = await supabase
+        .from('comentarios')
+        .delete()
+        .eq('publicacion_id', item.id)
+        .eq('usuario_carnet', commentToDelete.usuario)
+        .eq('contenido', commentToDelete.texto)
+        .eq('created_at', commentToDelete.created_at);
+      if (error) throw error;
+      await openComments();
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    } catch (err) {
+      console.error('Error al eliminar comentario:', err);
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
     }
   };
 
@@ -436,12 +544,12 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
             <View style={styles.actionsLeft}>
               <TouchableOpacity onPress={() => { closeMenu(); handleLike(); }} activeOpacity={0.7} style={styles.actionBtnRow}>
                 <FontAwesome name={liked ? 'heart' : 'heart-o'} size={22} color={liked ? '#e74c3c' : (darkMode ? '#eee' : '#222')} />
-                <Text style={[styles.actionText, darkMode && styles.actionTextDark, liked && { color: '#e74c3c' }]}>Me gusta</Text>
+                <Text style={[styles.inlineCount, darkMode && styles.inlineCountDark]}>{Math.max(0, likeCount)}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={closeMenu}>
+              <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={() => { closeMenu(); openComments(); }}>
                 <FontAwesome name="comment-o" size={20} color={darkMode ? '#fff' : '#222'} />
-                <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Comentar</Text>
+                <Text style={[styles.inlineCount, darkMode && styles.inlineCountDark]}>{Math.max(0, commentCount)}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={closeMenu}>
@@ -453,7 +561,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
               <MaterialIcons name={saved ? 'bookmark' : 'bookmark-border'} size={26} color={darkMode ? '#eee' : '#222'} />
             </TouchableOpacity>
           </View>
-          <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{Math.max(0, likeCount)} Me gusta</Text>
+          {/* Removed separate comment count line; counts now inline */}
           {!isTextOnly && !!captionText && (
             <>
               <Text style={[styles.captionText, darkMode && styles.captionTextDark]} numberOfLines={captionExpanded ? 0 : 2}>
@@ -546,6 +654,106 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
           </View>
         </View>
       )}
+
+      {/* Modal de comentarios básico */}
+      {commentModalVisible && (
+        <Modal transparent animationType="fade" visible={commentModalVisible} onRequestClose={() => setCommentModalVisible(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <Pressable style={{ flex: 1 }} onPress={() => setCommentModalVisible(false)} />
+            <View style={{ backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: Dimensions.get('window').height * 0.75, width: '100%' }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e' }}>Comentarios</Text>
+                <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
+                  <MaterialIcons name="close" size={26} color={darkMode ? '#e5e7eb' : '#333'} />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={comments}
+                keyExtractor={(c, idx) => `${c.created_at}-${idx}`}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={<Text style={{ color: darkMode ? '#aaa' : '#666', textAlign: 'center', marginTop: 20 }}>Sin comentarios aún.</Text>}
+                renderItem={({ item: c }) => {
+                  const isMyComment = carnet && c.usuario === carnet;
+                  return (
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: darkMode ? '#333' : '#eee' }}>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={async () => {
+                        let me = carnet;
+                        if (!me) {
+                          try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
+                        }
+                        // Cerrar modal antes de navegar
+                        setCommentModalVisible(false);
+                        if (me && me === c.usuario) {
+                          navigation.navigate('Perfil');
+                        } else {
+                          navigation.navigate('ViewUserProfile', { userId: c.usuario });
+                        }
+                      }}
+                      style={{ marginRight: 10 }}
+                    >
+                      {c.avatarUrl ? (
+                        <Image source={{ uri: c.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#eee' }} />
+                      ) : (
+                        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#e6eef8', alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ color: darkMode ? '#ddd' : '#0b2545', fontWeight: '700' }}>{(c.displayName || c.usuario || 'U').charAt(0).toUpperCase()}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ flex: 1 }}
+                      activeOpacity={1}
+                      onLongPress={() => {
+                        if (isMyComment) handleDeleteComment(c);
+                      }}
+                    >
+                      <Text style={{ color: darkMode ? '#e5e7eb' : '#222' }}>
+                        <Text style={{ fontWeight: 'bold' }}>{c.displayName || c.usuario}</Text>
+                      </Text>
+                      <Text style={{ color: darkMode ? '#cbd5e1' : '#444', marginTop: 2 }}>{c.texto}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  );
+                }}
+                style={{ maxHeight: Dimensions.get('window').height * 0.55 }}
+              />
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#e5e5e5' }}>
+                <TextInput
+                  style={{ flex: 1, borderWidth: 1, borderColor: darkMode ? '#333' : '#e1e7ef', backgroundColor: darkMode ? '#111' : '#fff', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, color: darkMode ? '#e5e7eb' : '#222' }}
+                  placeholder="Escribe un comentario..."
+                  placeholderTextColor={darkMode ? '#8b93a3' : '#888'}
+                  value={newComment}
+                  onChangeText={setNewComment}
+                  multiline
+                />
+                <TouchableOpacity onPress={handleAddComment} style={{ marginLeft: 10 }}>
+                  <MaterialIcons name="send" size={24} color="#007AFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Modal estilizado para eliminar comentario */}
+      <Modal transparent animationType="fade" visible={deleteCommentModalVisible} onRequestClose={() => setDeleteCommentModalVisible(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setDeleteCommentModalVisible(false)}>
+          <Pressable style={{ width: '85%', maxWidth: 400, backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderRadius: 16, padding: 24, elevation: 10 }} onPress={(e) => e.stopPropagation()}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e', marginBottom: 12, textAlign: 'center' }}>Eliminar comentario</Text>
+            <Text style={{ fontSize: 15, color: darkMode ? '#cbd5e1' : '#666', marginBottom: 24, textAlign: 'center' }}>¿Estás seguro de que quieres eliminar este comentario?</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+              <TouchableOpacity onPress={() => setDeleteCommentModalVisible(false)} style={{ flex: 1, paddingVertical: 12, backgroundColor: darkMode ? '#333' : '#e5e5e5', borderRadius: 10, alignItems: 'center' }}>
+                <Text style={{ color: darkMode ? '#e5e7eb' : '#222', fontSize: 16, fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmDeleteComment} style={{ flex: 1, paddingVertical: 12, backgroundColor: '#FF3B30', borderRadius: 10, alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -584,6 +792,9 @@ const styles = StyleSheet.create({
   actionBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionText: { color: '#222', fontSize: 14 },
   actionTextDark: { color: '#ffffff' },
+  countUnderAction: { fontSize: 11, color: '#444', marginTop: 2, textAlign: 'center' }, // legacy not used now
+  inlineCount: { fontSize: 13, color: '#444', marginLeft: 6, fontWeight: '500' },
+  inlineCountDark: { color: '#ddd' },
   likesText: { color: '#111', fontWeight: '600', fontSize: 14, paddingHorizontal: 12, marginTop: 6 },
   likesTextDark: { color: '#ddd' },
   captionText: { color: '#111', fontSize: 14, paddingHorizontal: 12, marginTop: 4 },
