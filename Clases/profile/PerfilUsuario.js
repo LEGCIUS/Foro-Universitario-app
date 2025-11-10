@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal } from 'react-native';
+import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal, Dimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -7,14 +7,19 @@ import { Buffer } from 'buffer';
 import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
+import Etiquetas from '../components/Etiquetas';
+import CommentsModal from '../components/CommentsModal';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { Video } from 'expo-av';
 import CreatePublicationModal from '../publications/CreatePublicationModal';
+import PublicationModal from '../publications/PublicationModal';
 
 const Tab = createMaterialTopTabNavigator();
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 export default function PerfilUsuario({ navigation }) {
   const { darkMode } = useTheme();
@@ -24,16 +29,12 @@ export default function PerfilUsuario({ navigation }) {
   const [nuevaBio, setNuevaBio] = useState('');
   const [nuevaFoto, setNuevaFoto] = useState('');
   const [unreadDeletion, setUnreadDeletion] = useState(null);
+  const TabNavigatorRef = useRef(null);
 
   const fetchUsuario = async () => {
     setLoading(true);
-    // Recupera el carnet guardado en AsyncStorage
     const carnet = await AsyncStorage.getItem('carnet');
-    if (!carnet) {
-      setLoading(false);
-      return;
-    }
-    // Consulta los datos del usuario en Supabase
+    if (!carnet) { setLoading(false); return; }
     const { data, error } = await supabase
       .from('usuarios')
       .select('*')
@@ -48,9 +49,7 @@ export default function PerfilUsuario({ navigation }) {
   };
 
   useFocusEffect(
-    React.useCallback(() => {
-      fetchUsuario();
-    }, [])
+    React.useCallback(() => { fetchUsuario(); }, [])
   );
 
   useEffect(() => {
@@ -70,14 +69,11 @@ export default function PerfilUsuario({ navigation }) {
         } else {
           setUnreadDeletion(null);
         }
-      } catch (_) {
-        // Si la tabla no existe o falla, no bloquea el perfil
-      }
+      } catch (_) {}
     };
     fetchNotifications();
   }, [usuario?.carnet]);
 
-  // Cambiar foto de perfil
   const pickImageAndUpload = async () => {
     let result;
     if (Platform.OS === 'web') {
@@ -95,18 +91,9 @@ export default function PerfilUsuario({ navigation }) {
         const filePath = `${usuario.carnet}/${fileName}`;
         const { data, error } = await supabase.storage
           .from('fotos-perfil')
-          .upload(filePath, file, {
-            contentType: fileType,
-            upsert: true,
-          });
-        if (error) {
-          Alert.alert('Error', error.message || 'No se pudo subir la imagen');
-          return;
-        }
-        const { data: publicData } = supabase
-          .storage
-          .from('fotos-perfil')
-          .getPublicUrl(data.path);
+          .upload(filePath, file, { contentType: fileType, upsert: true });
+        if (error) { Alert.alert('Error', error.message || 'No se pudo subir la imagen'); return; }
+        const { data: publicData } = supabase.storage.from('fotos-perfil').getPublicUrl(data.path);
         setNuevaFoto(publicData.publicUrl);
       }
     } else {
@@ -121,34 +108,17 @@ export default function PerfilUsuario({ navigation }) {
         const fileName = uri.split('/').pop();
         const fileType = fileName.split('.').pop();
         const filePath = `${usuario.carnet}/perfil.${fileType}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: 'base64',
-        });
+        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
         const fileBuffer = Buffer.from(base64, 'base64');
         const { data, error } = await supabase.storage
           .from('fotos-perfil')
-          .upload(filePath, fileBuffer, {
-            contentType: `image/${fileType}`,
-            upsert: true,
-          });
-        if (error || !data) {
-          Alert.alert('Error al subir la imagen', error?.message || 'No se pudo subir la imagen al storage.');
-          return;
-        }
-        const { data: publicData } = supabase
-          .storage
-          .from('fotos-perfil')
-          .getPublicUrl(filePath);
-        if (!publicData || !publicData.publicUrl) {
-          Alert.alert('Error', 'No se pudo obtener la URL pública de la imagen.');
-          return;
-        }
+          .upload(filePath, fileBuffer, { contentType: `image/${fileType}`, upsert: true });
+        if (error || !data) { Alert.alert('Error al subir la imagen', error?.message || 'No se pudo subir la imagen al storage.'); return; }
+        const { data: publicData } = supabase.storage.from('fotos-perfil').getPublicUrl(filePath);
+        if (!publicData || !publicData.publicUrl) { Alert.alert('Error', 'No se pudo obtener la URL pública de la imagen.'); return; }
         const urlConTimestamp = publicData.publicUrl + `?t=${Date.now()}`;
         setNuevaFoto(urlConTimestamp);
-        await supabase
-          .from('usuarios')
-          .update({ foto_perfil: urlConTimestamp })
-          .eq('carnet', usuario.carnet);
+        await supabase.from('usuarios').update({ foto_perfil: urlConTimestamp }).eq('carnet', usuario.carnet);
         setUsuario({ ...usuario, foto_perfil: urlConTimestamp });
       }
     }
@@ -156,10 +126,7 @@ export default function PerfilUsuario({ navigation }) {
 
   const handleGuardar = async () => {
     setLoading(true);
-    await supabase
-      .from('usuarios')
-      .update({ biografia: nuevaBio, foto_perfil: nuevaFoto })
-      .eq('carnet', usuario.carnet);
+    await supabase.from('usuarios').update({ biografia: nuevaBio, foto_perfil: nuevaFoto }).eq('carnet', usuario.carnet);
     setLoading(false);
     setUsuario({ ...usuario, biografia: nuevaBio, foto_perfil: nuevaFoto });
   };
@@ -388,14 +355,22 @@ function PublicacionesTab({ usuario, darkMode }) {
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState(null);
   const [showZoom, setShowZoom] = useState(false);
+  const navigation = useNavigation();
 
   // Modal de publicación usando CreatePublicationModal
   const [showPublishModal, setShowPublishModal] = useState(false);
 
   // Likes y comentarios visuales
-  const [likes, setLikes] = useState(0);
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [commentCount, setCommentCount] = useState(0);
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState('');
+  const [deleteCommentModalVisible, setDeleteCommentModalVisible] = useState(false);
+  const [commentToDelete, setCommentToDelete] = useState(null);
+  const profileCacheRef = useRef(new Map());
+  const [carnet, setCarnet] = useState(null);
   const [videoKey, setVideoKey] = useState(0);
   const videoRef = useRef(null);
 
@@ -421,7 +396,27 @@ function PublicacionesTab({ usuario, darkMode }) {
         .order('fecha_publicacion', { ascending: false });
 
       if (!error && data) {
-        setPosts(data);
+        const mapped = data.map(pub => {
+          // Parse etiquetas similar a HomeScreen
+          let etiquetas = [];
+          try {
+            if (pub.etiquetas && typeof pub.etiquetas === 'string') {
+              if (pub.etiquetas.startsWith('[')) {
+                etiquetas = JSON.parse(pub.etiquetas);
+              } else {
+                etiquetas = pub.etiquetas.split(',').map(t => t.trim()).filter(t => t.length > 0);
+              }
+            } else if (Array.isArray(pub.etiquetas)) {
+              etiquetas = pub.etiquetas;
+            }
+          } catch (e) {
+            if (pub.etiquetas && typeof pub.etiquetas === 'string') {
+              etiquetas = pub.etiquetas.split(',').map(t => t.trim()).filter(t => t.length > 0);
+            }
+          }
+          return { ...pub, etiquetas };
+        });
+        setPosts(mapped);
       }
       setLoading(false);
     };
@@ -512,6 +507,186 @@ function PublicacionesTab({ usuario, darkMode }) {
     setPendingDeletePost(null);
   };
 
+  // Cargar estado de likes y conteos cuando se selecciona una publicación
+  useEffect(() => {
+    if (!selectedPost?.id) return;
+    (async () => {
+      try {
+        let c = carnet;
+        if (!c) {
+          c = await AsyncStorage.getItem('carnet');
+          if (c) setCarnet(c);
+        }
+        if (c) {
+          const { data: mine } = await supabase
+            .from('likes')
+            .select('id')
+            .eq('publicacion_id', selectedPost.id)
+            .eq('usuario_carnet', c)
+            .maybeSingle();
+          setLiked(!!mine);
+        }
+        const { data: pubRow } = await supabase
+          .from('publicaciones')
+          .select('likes_count, comentarios_count')
+          .eq('id', selectedPost.id)
+          .maybeSingle();
+        if (pubRow) {
+          if (typeof pubRow.likes_count === 'number') setLikeCount(pubRow.likes_count);
+          if (typeof pubRow.comentarios_count === 'number') setCommentCount(pubRow.comentarios_count);
+        }
+      } catch (e) {
+        console.warn('Error cargando likes/comentarios:', e);
+      }
+    })();
+  }, [selectedPost]);
+
+  const handleLike = async () => {
+    try {
+      const postId = selectedPost?.id;
+      if (!postId) return;
+      let c = carnet;
+      if (!c) {
+        c = await AsyncStorage.getItem('carnet');
+        if (!c) return;
+        setCarnet(c);
+      }
+      if (liked) {
+        setLiked(false);
+        setLikeCount((prev) => Math.max(0, prev - 1));
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('publicacion_id', postId)
+          .eq('usuario_carnet', c);
+        if (error) {
+          setLiked(true);
+          setLikeCount((prev) => prev + 1);
+        }
+      } else {
+        setLiked(true);
+        setLikeCount((prev) => prev + 1);
+        const { error } = await supabase
+          .from('likes')
+          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true });
+        if (error) {
+          setLiked(false);
+          setLikeCount((prev) => Math.max(0, prev - 1));
+        }
+      }
+      const { data: pubData } = await supabase
+        .from('publicaciones')
+        .select('likes_count, comentarios_count')
+        .eq('id', postId)
+        .maybeSingle();
+      if (pubData) {
+        if (typeof pubData.likes_count === 'number') setLikeCount(pubData.likes_count);
+        if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
+      }
+      const { data: mine } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('publicacion_id', postId)
+        .eq('usuario_carnet', c)
+        .maybeSingle();
+      setLiked(!!mine);
+    } catch (err) {
+      console.error('handleLike perfil error:', err);
+    }
+  };
+
+  const openComments = async () => {
+    try {
+      if (!selectedPost?.id) return;
+      const { data, error } = await supabase
+        .from('comentarios')
+        .select('contenido, usuario_carnet, created_at')
+        .eq('publicacion_id', selectedPost.id)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      if (!error) {
+        const rows = data || [];
+        const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+        const cache = profileCacheRef.current;
+        const missing = uniqueCarnets.filter(c => !cache.has(c));
+        if (missing.length > 0) {
+          const { data: usuariosData, error: usuariosErr } = await supabase
+            .from('usuarios')
+            .select('carnet, nombre, apellido, foto_perfil')
+            .in('carnet', missing);
+          if (!usuariosErr && Array.isArray(usuariosData)) {
+            usuariosData.forEach(u => {
+              cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
+            });
+          }
+        }
+        const enriched = rows.map(r => {
+          const prof = cache.get(r.usuario_carnet);
+          const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
+          const avatarUrl = prof?.foto_perfil || null;
+          return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+        });
+        setComments(enriched);
+        // actualizar conteo
+        const { data: pubRow, error: pubErr } = await supabase
+          .from('publicaciones')
+          .select('comentarios_count')
+          .eq('id', selectedPost.id)
+          .maybeSingle();
+        if (!pubErr && pubRow && typeof pubRow.comentarios_count === 'number') {
+          setCommentCount(pubRow.comentarios_count);
+        } else {
+          setCommentCount(rows.length);
+        }
+      }
+      setCommentModalVisible(true);
+    } catch (e) {
+      console.error('openComments perfil error:', e);
+    }
+  };
+
+  const handleAddComment = async () => {
+    try {
+      const text = newComment.trim();
+      if (!text || !selectedPost?.id) return;
+      let c = carnet || (await AsyncStorage.getItem('carnet'));
+      if (!c) return;
+      const { error } = await supabase
+        .from('comentarios')
+        .insert({ publicacion_id: selectedPost.id, usuario_carnet: c, contenido: text });
+      if (!error) {
+        setNewComment('');
+        await openComments();
+      }
+    } catch {}
+  };
+
+  const handleDeleteComment = (commentItem) => {
+    setCommentToDelete(commentItem);
+    setDeleteCommentModalVisible(true);
+  };
+
+  const confirmDeleteComment = async () => {
+    try {
+      if (!commentToDelete || !selectedPost?.id) return;
+      const { error } = await supabase
+        .from('comentarios')
+        .delete()
+        .eq('publicacion_id', selectedPost.id)
+        .eq('usuario_carnet', commentToDelete.usuario)
+        .eq('contenido', commentToDelete.texto)
+        .eq('created_at', commentToDelete.created_at);
+      if (error) throw error;
+      await openComments();
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    } catch (err) {
+      console.error('Error eliminar comentario perfil:', err);
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    }
+  };
+
   const handlePublished = async () => {
     setShowPublishModal(false);
     // Recargar publicaciones
@@ -577,9 +752,10 @@ function PublicacionesTab({ usuario, darkMode }) {
                   }}
                   onPress={() => {
                     setSelectedPost(pub);
-                    setLikes(pub.likes || 0);
-                    setComments(pub.comentarios || []);
                     setVideoKey(0);
+                    setLiked(false);
+                    setLikeCount(0);
+                    setCommentCount(0);
                   }}
                 >
                   {pub.contenido === 'image' && pub.archivo_url && (
@@ -611,156 +787,70 @@ function PublicacionesTab({ usuario, darkMode }) {
         onPublished={handlePublished}
       />
       
-      {/* Modal para ver publicación seleccionada */}
-      <Modal
+      {/* Modal para ver publicación seleccionada (reutilizable) */}
+      <PublicationModal
         visible={!!selectedPost}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
+        darkMode={darkMode}
+        post={selectedPost}
+        onClose={() => { setSelectedPost(null); setMenuVisible(null); }}
+        liked={liked}
+        likesCount={likeCount}
+        onPressLike={() => handleLike()}
+        commentCount={commentCount}
+        onPressComments={() => openComments()}
+        canDelete={true}
+        onPressDelete={() => handleDeletePost(selectedPost)}
+        canReport={false}
+        sharePayload={{ title: selectedPost?.titulo, message: selectedPost?.descripcion || selectedPost?.titulo, url: selectedPost?.archivo_url }}
+      />
+
+      {/* Modal reutilizable de comentarios */}
+      <CommentsModal
+        visible={commentModalVisible}
+        darkMode={darkMode}
+        comments={comments}
+        commentCount={commentCount}
+        newComment={newComment}
+        onChangeNewComment={setNewComment}
+        onSubmitNewComment={handleAddComment}
+        onRequestClose={() => setCommentModalVisible(false)}
+        meCarnet={carnet || usuario.carnet}
+        onPressAvatar={(carnetUser) => {
+          setCommentModalVisible(false);
           setSelectedPost(null);
-          setMenuVisible(null); // Añadir esto
+          if (!carnetUser) return;
+          if (carnetUser === usuario.carnet) {
+            // Ya estamos en el perfil propio, solo cerrar modales
+            return;
+          }
+          navigation.navigate('ViewUserProfile', { userId: carnetUser });
         }}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => {
-            setSelectedPost(null);
-            setMenuVisible(null); // Añadir esto
-          }}
-        >
-          <View style={styles.centeredView}>
-            <TouchableOpacity
-              activeOpacity={1}
-              style={[styles.modalContent, darkMode && styles.modalContentDark]}
-              onPress={() => setMenuVisible(null)}
-            >
-             
-              {/* Menú de tres puntos en el modal */}
-              {selectedPost && (
-                <View style={styles.overlayButtons}>
-                  <TouchableOpacity 
-                    onPress={() => setMenuVisible(menuVisible === selectedPost.id ? null : selectedPost.id)}
-                    style={styles.overlayButton}
-                  >
-                    <MaterialIcons name="more-vert" size={24} color="#fff" />
-                  </TouchableOpacity>
-
-                  {menuVisible === selectedPost.id && (
-                    <View style={[styles.overlayMenu, darkMode && styles.overlayMenuDark]}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setMenuVisible(null);
-                          handleDeletePost(selectedPost);
-                        }}
-                        style={styles.overlayMenuItem}
-                      >
-                        <MaterialIcons name="delete" size={18} color="#FF3B30" />
-                        <Text style={[styles.overlayMenuText, darkMode && styles.overlayMenuTextDark, { color: '#FF3B30' }]}>Eliminar</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              )}
-              {selectedPost?.contenido === 'image' && (
-                <>
-                  <TouchableOpacity onPress={() => {
-                    setShowZoom(true);
-                    setMenuVisible(null);
-                  }}>
-                    <Image
-                      source={{ uri: selectedPost.archivo_url }}
-                      style={styles.previewMedia}
-                      resizeMode="contain"
-                    />
-                  </TouchableOpacity>
-                  <Modal
-                    visible={showZoom}
-                    transparent={true}
-                    onRequestClose={() => {
-                      setShowZoom(false);
-                      setMenuVisible(null);
-                    }}
-                  >
-                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
-                      <TouchableOpacity 
-                        activeOpacity={1} 
-                        style={{ flex: 1 }} 
-                        onPress={() => {
-                          setShowZoom(false);
-                          setMenuVisible(null);
-                        }}
-                      >
-                        <Image
-                          source={{ uri: selectedPost.archivo_url }}
-                          style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </Modal>
-                </>
-              )}
-              {selectedPost?.contenido === 'video' && (
-                <Video
-                  key={videoKey}
-                  ref={videoRef}
-                  source={{ uri: selectedPost.archivo_url }}
-                  style={styles.previewMedia}
-                  useNativeControls
-                  resizeMode="contain"
-                  onEnd={() => setVideoKey(prev => prev + 1)}
-                />
-              )}
-              <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>{selectedPost?.titulo}</Text>
-              <Text style={[styles.modalText, darkMode && styles.modalTextDark, { fontSize: 15, marginBottom: 8 }]}>
-                {selectedPost?.descripcion || selectedPost?.titulo}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                <TouchableOpacity onPress={() => setLikes(likes + 1)} style={{ marginRight: 8 }}>
-                  <MaterialIcons name="thumb-up" size={24} color="#007AFF" />
-                </TouchableOpacity>
-                <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>{likes} Me gusta</Text>
-              </View>
-
-              <Text style={[styles.sectionTitle, { marginTop: 8, color: darkMode ? '#fff' : '#222' }]}>Comentarios:</Text>
-              <ScrollView style={{ maxHeight: 80, marginBottom: 8 }}>
-                {comments.length === 0 ? (
-                  <Text style={[styles.placeholderText, darkMode && styles.placeholderTextDark]}>Sin comentarios.</Text>
-                ) : (
-                  comments.map((c, idx) => (
-                    <Text key={idx} style={[styles.commentItem, darkMode && styles.commentItemDark]}>
-                      <Text style={[styles.commentAuthor, darkMode && styles.commentAuthorDark]}>{c.usuario || 'Usuario'}: </Text>
-                      <Text style={[styles.commentText, darkMode && styles.commentTextDark]}>{c.texto}</Text>
-                    </Text>
-                  ))
-                )}
-              </ScrollView>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TextInput
-                  style={[styles.input, { flex: 1, height: 36, marginBottom: 0 }, darkMode && styles.inputDark]}
-                  placeholder="Escribe un comentario..."
-                  placeholderTextColor={darkMode ? "#bbb" : "#999"}
-                  value={newComment}
-                  onChangeText={setNewComment}
-                />
-                <TouchableOpacity
-                  onPress={() => {
-                    if (newComment.trim()) {
-                      setComments([...comments, { usuario: 'Tú', texto: newComment }]);
-                      setNewComment('');
-                    }
-                  }}
-                  style={{ marginLeft: 8 }}
-                >
-                  <MaterialIcons name="send" size={24} color="#007AFF" />
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
+        onLongPressComment={(c) => {
+          if (!c) return;
+          const mine = (c.usuario === (carnet || usuario.carnet));
+          if (mine) handleDeleteComment(c);
+        }}
+      />
+      
+      {/* Confirmación para eliminar comentario */}
+      <Modal transparent visible={deleteCommentModalVisible} animationType="fade" onRequestClose={() => setDeleteCommentModalVisible(false)}>
+        <View style={styles.confirmModalContainer}>
+          <View style={[styles.confirmModalContent, darkMode && styles.confirmModalContentDark]}>
+            <Text style={[styles.confirmTitle, darkMode && styles.confirmTitleDark]}>Eliminar comentario</Text>
+            <Text style={[styles.confirmText, darkMode && styles.confirmTextDark]}>¿Deseas eliminar este comentario? Esta acción no se puede deshacer.</Text>
+            <View style={styles.confirmButtonsRow}>
+              <TouchableOpacity style={[styles.confirmButton, styles.confirmCancelButton, darkMode && styles.confirmCancelButtonDark]} onPress={() => setDeleteCommentModalVisible(false)}>
+                <Text style={[styles.confirmButtonText, darkMode && styles.confirmButtonTextDark]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmButton, styles.confirmDeleteButton]} onPress={confirmDeleteComment}>
+                <Text style={[styles.confirmButtonText, { fontWeight: '700', color: '#fff' }]}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
       
-      {/* Confirmación estilizada para eliminar */}
+      {/* Confirmación estilizada para eliminar publicación */}
       <Modal transparent visible={confirmDeleteVisible} animationType="fade" onRequestClose={cancelDelete}>
         <View style={styles.confirmModalContainer}>
           <View style={[styles.confirmModalContent, darkMode && styles.confirmModalContentDark]}>
@@ -844,7 +934,6 @@ const styles = StyleSheet.create({
   infoList: { marginBottom: 12, alignSelf: 'flex-start' },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   infoText: { fontSize: 15, color: '#4e7397', marginLeft: 8, alignSelf: 'flex-start' },
-
   editButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -860,31 +949,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
-  },
-  
-  infoCard: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 122, 255, 0.1)',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginLeft: 10,
-    color: '#222',
   },
   cardText: {
     fontSize: 15,
@@ -1296,5 +1360,12 @@ const styles = StyleSheet.create({
   commentTextDark: {
     color: '#e6e6e6',
   },
+
+  // Actions row (perfil modal)
+  actionsRowProfile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4, paddingBottom: 4 },
+  actionsLeftProfile: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  actionBtnRowProfile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  inlineCountProfile: { fontSize: 13, color: '#444', marginLeft: 6, fontWeight: '500' },
+  inlineCountProfileDark: { color: '#ddd' },
 });
 

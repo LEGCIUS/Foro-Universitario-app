@@ -6,6 +6,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
+import CommentsModal from '../components/CommentsModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -384,84 +385,36 @@ export default function PublicationsViewer({ route, navigation }) {
         </TouchableOpacity>
       </Modal>
 
-      {/* Modal de comentarios */}
-      <Modal transparent animationType="fade" visible={showCommentModal} onRequestClose={() => setShowCommentModal(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: height * 0.75, width: '100%', paddingBottom: 12 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e' }}>Comentarios ({commentCount})</Text>
-              <TouchableOpacity onPress={() => setShowCommentModal(false)}>
-                <MaterialIcons name="close" size={26} color={darkMode ? '#e5e7eb' : '#333'} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={comments}
-              keyExtractor={(c, idx) => `${c.created_at}-${idx}`}
-              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={<Text style={{ color: darkMode ? '#aaa' : '#666', textAlign: 'center', marginTop: 20 }}>Sin comentarios aún.</Text>}
-              renderItem={({ item: c }) => {
-                const isMyComment = carnet && c.usuario === carnet;
-                return (
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: darkMode ? '#333' : '#eee' }}>
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={async () => {
-                      let me = carnet;
-                      if (!me) {
-                        try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
-                      }
-                      // Cerrar modal antes de navegar
-                      setShowCommentModal(false);
-                      if (me && me === c.usuario) {
-                        navigation.navigate('Perfil');
-                      } else {
-                        navigation.navigate('ViewUserProfile', { userId: c.usuario });
-                      }
-                    }}
-                    style={{ marginRight: 10 }}
-                  >
-                    {c.avatarUrl ? (
-                      <Image source={{ uri: c.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#eee' }} />
-                    ) : (
-                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#e6eef8', alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ color: darkMode ? '#ddd' : '#0b2545', fontWeight: '700' }}>{(c.displayName || c.usuario || 'U').charAt(0).toUpperCase()}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{ flex: 1 }}
-                    activeOpacity={1}
-                    onLongPress={() => {
-                      if (isMyComment) handleDeleteComment(c);
-                    }}
-                  >
-                    <Text style={{ color: darkMode ? '#e5e7eb' : '#222' }}>
-                      <Text style={{ fontWeight: 'bold' }}>{c.displayName || c.usuario}</Text>
-                    </Text>
-                    <Text style={{ color: darkMode ? '#cbd5e1' : '#444', marginTop: 2 }}>{c.texto}</Text>
-                  </TouchableOpacity>
-                </View>
-                );
-              }}
-              style={{ maxHeight: height * 0.55 }}
-            />
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#e5e5e5' }}>
-              <TextInput
-                style={{ flex: 1, borderWidth: 1, borderColor: darkMode ? '#333' : '#e1e7ef', backgroundColor: darkMode ? '#111' : '#fff', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, color: darkMode ? '#e5e7eb' : '#222' }}
-                placeholder="Escribe un comentario..."
-                placeholderTextColor={darkMode ? '#8b93a3' : '#888'}
-                value={newComment}
-                onChangeText={setNewComment}
-                multiline
-              />
-              <TouchableOpacity onPress={async () => { await handleAddComment(); }} style={{ marginLeft: 10 }}>
-                <MaterialIcons name="send" size={24} color="#007AFF" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Modal reutilizable de comentarios */}
+      <CommentsModal
+        visible={showCommentModal}
+        darkMode={darkMode}
+        comments={comments}
+        commentCount={commentCount}
+        newComment={newComment}
+        onChangeNewComment={setNewComment}
+        onSubmitNewComment={handleAddComment}
+        onRequestClose={() => setShowCommentModal(false)}
+        meCarnet={carnet}
+        onPressAvatar={async (carnetUser) => {
+          let me = carnet;
+          if (!me) {
+            try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
+          }
+          setShowCommentModal(false);
+          if (me && me === carnetUser) {
+            // Ir al tab de perfil dentro de MainTabs
+            navigation.navigate('MainTabs', { screen: 'Perfil' });
+          } else {
+            navigation.navigate('ViewUserProfile', { userId: carnetUser });
+          }
+        }}
+        onLongPressComment={(c) => {
+          if (!c) return;
+          const isMyComment = carnet && c.usuario === carnet;
+          if (isMyComment) handleDeleteComment(c);
+        }}
+      />
 
       {/* Modal estilizado para eliminar comentario */}
       <Modal transparent animationType="fade" visible={deleteCommentModalVisible} onRequestClose={() => setDeleteCommentModalVisible(false)}>

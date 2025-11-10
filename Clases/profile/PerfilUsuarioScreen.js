@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
+import PublicationModal from '../publications/PublicationModal';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
@@ -57,7 +58,11 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
   const videoRefs = useRef(new Map());
   const publicacionRefs = useRef(new Map());
   const scrollViewRef = useRef(null);
-  const [visibleVideoIds, setVisibleVideoIds] = useState(new Set());
+  const [visibleVideoIds, setVisibleVideoIds] = useState(new Set()); // mantenido si futuro auto-play requerido
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [likesCount, setLikesCount] = useState(0);
+  const [likedByMe, setLikedByMe] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const scrollTimer = useRef(null);
@@ -91,9 +96,6 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
         }
       });
       setVisibleVideoIds(new Set());
-    } else {
-      // Cuando vuelve el foco, actualizar videos visibles inmediatamente
-      setTimeout(() => updateVisibleVideos(), 100); // Reducido de 300ms a 100ms
     }
   }, [isFocused]);
 
@@ -110,9 +112,7 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
 
   // Actualizar videos visibles al cargar publicaciones
   useEffect(() => {
-    if (publicaciones.length > 0 && isFocused) {
-      setTimeout(() => updateVisibleVideos(), 200); // Reducido de 500ms a 200ms
-    }
+    // autoplay removido
   }, [publicaciones.length, isFocused]);
 
   // Detectar cambios en dimensiones de pantalla
@@ -125,75 +125,16 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
   }, []);
 
   // Función para actualizar videos visibles basado en scroll
-  const updateVisibleVideos = useCallback(() => {
-    if (!publicaciones.length || !isFocused) return;
-    
-    const newVisibleIds = new Set();
-    let processed = 0;
-    const videosCount = publicaciones.filter(p => 
-      p.contenido === 'video' || 
-      p.archivo_url?.includes('.mp4') || 
-      p.archivo_url?.includes('.mov')
-    ).length;
-    
-    if (videosCount === 0) return;
-    
-    publicaciones.forEach((publicacion) => {
-      const esVideo = publicacion.contenido === 'video' || 
-                     publicacion.archivo_url?.includes('.mp4') || 
-                     publicacion.archivo_url?.includes('.mov');
-      
-      if (!esVideo) return;
-      
-      const publicacionRef = publicacionRefs.current.get(publicacion.id);
-      if (publicacionRef) {
-        publicacionRef.measure((x, y, width, height, pageX, pageY) => {
-          if (pageY !== undefined && pageY !== null) {
-            const videoTop = pageY;
-            const videoBottom = pageY + height;
-            const screenHeight = Dimensions.get('window').height;
-            
-            // Video es visible si al menos 60% está en pantalla
-            const visibleTop = Math.max(videoTop, 0);
-            const visibleBottom = Math.min(videoBottom, screenHeight);
-            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-            const percentVisible = visibleHeight / height;
-            
-            if (percentVisible >= 0.6) {
-              newVisibleIds.add(publicacion.id);
-            }
-          }
-          
-          processed++;
-          if (processed === videosCount) {
-            // Actualizar inmediatamente sin delay
-            setVisibleVideoIds(prev => {
-              const hasChanges = prev.size !== newVisibleIds.size || 
-                                [...newVisibleIds].some(id => !prev.has(id)) ||
-                                [...prev].some(id => !newVisibleIds.has(id));
-              return hasChanges ? newVisibleIds : prev;
-            });
-          }
-        });
-      } else {
-        processed++;
-      }
-    });
-  }, [publicaciones, isFocused]);
+  // Eliminado updateVisibleVideos para evitar ReferenceError; se puede reintroducir si se decide auto-play.
 
   // Manejar scroll
   const handleScroll = useCallback((event) => {
     const currentScrollY = event.nativeEvent.contentOffset.y;
     setScrollY(currentScrollY);
-    
-    // Actualizar videos visibles con debounce reducido para mayor responsividad
-    if (scrollTimer.current) {
-      clearTimeout(scrollTimer.current);
-    }
-    scrollTimer.current = setTimeout(() => {
-      updateVisibleVideos();
-    }, 50); // Reducido de 150ms a 50ms
-  }, [updateVisibleVideos]);
+    // debounce sin acción; autoplay removido
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {}, 50);
+  }, []);
 
   const cargarPerfilCompleto = async () => {
     try {

@@ -19,9 +19,12 @@ import { Video } from 'expo-av';
 import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
+import CommentsModal from '../components/CommentsModal';
+import Etiquetas from '../components/Etiquetas';
+import PublicationModal from '../publications/PublicationModal';
 // Eliminado zoom avanzado: usamos solo Image ampliada
 
-const { width } = Dimensions.get('window');
+const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const ViewUserProfile = ({ route, navigation }) => {
   const { userId } = route.params || {}; // carnet del usuario a ver
@@ -39,20 +42,25 @@ const ViewUserProfile = ({ route, navigation }) => {
   });
 
   // Estados para control de video
-  const videoRefs = useRef(new Map());
-  const publicacionRefs = useRef(new Map());
+  // Eliminado tracking de visibilidad de videos (no necesario aquí tras refactor)
+  // Limpieza de estados relacionados al error updateVisibleVideos
   const scrollViewRef = useRef(null);
-  const [visibleVideoIds, setVisibleVideoIds] = useState(new Set());
   const [isMuted, setIsMuted] = useState(false);
   const scrollTimer = useRef(null);
+  const [videoKey, setVideoKey] = useState(0);
+  const [showZoom, setShowZoom] = useState(false);
 
   // Estados para modal de publicación seleccionada
   const [selectedPost, setSelectedPost] = useState(null);
   const [likes, setLikes] = useState(0);
+  const [likedByMe, setLikedByMe] = useState(false);
   const [comments, setComments] = useState([]);
+  const [commentCount, setCommentCount] = useState(0);
   const [newComment, setNewComment] = useState('');
-  const [showZoom, setShowZoom] = useState(false);
-  const [videoKey, setVideoKey] = useState(0);
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [deleteCommentModalVisible, setDeleteCommentModalVisible] = useState(false);
+  const [commentToDelete, setCommentToDelete] = useState(null);
+  const profileCacheRef = useRef(new Map());
   
   // Estado para zoom de foto de perfil
   const [showProfilePicZoom, setShowProfilePicZoom] = useState(false);
@@ -63,122 +71,73 @@ const ViewUserProfile = ({ route, navigation }) => {
   const [reportReason, setReportReason] = useState('Contenido inapropiado');
   const [reportText, setReportText] = useState('');
 
-  const styles = createStyles(darkMode);
-
+  // Cargar mi carnet al montar
   useEffect(() => {
-    const obtenerMiCarnet = async () => {
-      const carnet = await AsyncStorage.getItem('carnet');
-      setMiCarnet(carnet);
+    const fetchMyCarnet = async () => {
+      const c = await AsyncStorage.getItem('carnet');
+      setMiCarnet(c);
     };
-    obtenerMiCarnet();
+    fetchMyCarnet();
   }, []);
 
+  // Cargar perfil cuando cambia userId o cuando la pantalla gana foco
   useEffect(() => {
-    if (userId) {
+    if (userId && isFocused) {
       cargarPerfil();
     }
-  }, [userId]);
+  }, [userId, isFocused]);
 
-  // Manejar focus de la pantalla para videos
+  // Cargar likes y comentarios cuando se selecciona una publicación
   useEffect(() => {
-    if (!isFocused) {
-      // Pausar todos los videos cuando se pierde el foco
-      videoRefs.current.forEach(async (videoRef) => {
-        if (videoRef) {
-          try {
-            await videoRef.pauseAsync();
-          } catch (error) {
-            // Ignorar errores
-          }
+    if (!selectedPost?.id) return;
+
+    const loadLikesAndComments = async () => {
+      try {
+        const postId = selectedPost.id;
+        let c = miCarnet;
+        if (!c) {
+          c = await AsyncStorage.getItem('carnet');
         }
-      });
-      setVisibleVideoIds(new Set());
-    } else {
-      // Cuando vuelve el foco, actualizar videos visibles
-      setTimeout(() => updateVisibleVideos(), 100);
-    }
-  }, [isFocused]);
 
-  // Limpiar refs cuando se desmonta el componente
-  useEffect(() => {
-    return () => {
-      videoRefs.current.clear();
-      publicacionRefs.current.clear();
-      if (scrollTimer.current) {
-        clearTimeout(scrollTimer.current);
+        // Cargar likes
+        const { data: likesData, error: likesError } = await supabase
+          .from('publicaciones')
+          .select('likes_count')
+          .eq('id', postId)
+          .maybeSingle();
+
+        if (!likesError && likesData) {
+          setLikes(likesData.likes_count || 0);
+        }
+
+        // Verificar si el usuario dio like
+        if (c) {
+          const { data: myLike } = await supabase
+            .from('likes')
+            .select('id')
+            .eq('publicacion_id', postId)
+            .eq('usuario_carnet', c)
+            .maybeSingle();
+          setLikedByMe(!!myLike);
+        }
+
+        // Cargar conteo de comentarios
+        const { data: pubData } = await supabase
+          .from('publicaciones')
+          .select('comentarios_count')
+          .eq('id', postId)
+          .maybeSingle();
+
+        if (pubData) {
+          setCommentCount(pubData.comentarios_count || 0);
+        }
+      } catch (error) {
+        console.error('Error al cargar likes/comentarios:', error);
       }
     };
-  }, []);
 
-  // Actualizar videos visibles al cargar publicaciones
-  useEffect(() => {
-    if (publicaciones.length > 0 && isFocused) {
-      setTimeout(() => updateVisibleVideos(), 200);
-    }
-  }, [publicaciones.length, isFocused]);
-
-  const updateVisibleVideos = useCallback(() => {
-    if (!publicaciones.length || !isFocused) return;
-    
-    const newVisibleIds = new Set();
-    let processed = 0;
-    const videosCount = publicaciones.filter(p => 
-      p.contenido === 'video' || 
-      p.archivo_url?.includes('.mp4') || 
-      p.archivo_url?.includes('.mov')
-    ).length;
-    
-    if (videosCount === 0) return;
-    
-    publicaciones.forEach((publicacion) => {
-      const esVideo = publicacion.contenido === 'video' || 
-                     publicacion.archivo_url?.includes('.mp4') || 
-                     publicacion.archivo_url?.includes('.mov');
-      
-      if (!esVideo) return;
-      
-      const publicacionRef = publicacionRefs.current.get(publicacion.id);
-      if (publicacionRef) {
-        publicacionRef.measure((x, y, width, height, pageX, pageY) => {
-          if (pageY !== undefined && pageY !== null) {
-            const videoTop = pageY;
-            const videoBottom = pageY + height;
-            const screenHeight = Dimensions.get('window').height;
-            
-            const visibleTop = Math.max(videoTop, 0);
-            const visibleBottom = Math.min(videoBottom, screenHeight);
-            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
-            const percentVisible = visibleHeight / height;
-            
-            if (percentVisible >= 0.6) {
-              newVisibleIds.add(publicacion.id);
-            }
-          }
-          
-          processed++;
-          if (processed === videosCount) {
-            setVisibleVideoIds(prev => {
-              const hasChanges = prev.size !== newVisibleIds.size || 
-                                [...newVisibleIds].some(id => !prev.has(id)) ||
-                                [...prev].some(id => !newVisibleIds.has(id));
-              return hasChanges ? newVisibleIds : prev;
-            });
-          }
-        });
-      } else {
-        processed++;
-      }
-    });
-  }, [publicaciones, isFocused]);
-
-  const handleScroll = useCallback((event) => {
-    if (scrollTimer.current) {
-      clearTimeout(scrollTimer.current);
-    }
-    scrollTimer.current = setTimeout(() => {
-      updateVisibleVideos();
-    }, 50);
-  }, [updateVisibleVideos]);
+    loadLikesAndComments();
+  }, [selectedPost]);
 
   const cargarPerfil = async () => {
     try {
@@ -231,7 +190,28 @@ const ViewUserProfile = ({ route, navigation }) => {
         throw error;
       }
 
-      setPublicaciones(data || []);
+      // Parsear etiquetas
+      const mapped = (data || []).map(pub => {
+        let etiquetas = [];
+        try {
+          if (pub.etiquetas && typeof pub.etiquetas === 'string') {
+            if (pub.etiquetas.startsWith('[')) {
+              etiquetas = JSON.parse(pub.etiquetas);
+            } else {
+              etiquetas = pub.etiquetas.split(',').map(t => t.trim()).filter(t => t.length > 0);
+            }
+          } else if (Array.isArray(pub.etiquetas)) {
+            etiquetas = pub.etiquetas;
+          }
+        } catch (e) {
+          if (pub.etiquetas && typeof pub.etiquetas === 'string') {
+            etiquetas = pub.etiquetas.split(',').map(t => t.trim()).filter(t => t.length > 0);
+          }
+        }
+        return { ...pub, etiquetas };
+      });
+
+      setPublicaciones(mapped);
     } catch (error) {
       console.error('Error al cargar publicaciones:', error);
       
@@ -270,6 +250,150 @@ const ViewUserProfile = ({ route, navigation }) => {
     setRefreshing(true);
     await cargarPerfil();
     setRefreshing(false);
+  };
+
+  const handleLike = async () => {
+    try {
+      const postId = selectedPost?.id;
+      if (!postId) return;
+      let c = miCarnet;
+      if (!c) {
+        c = await AsyncStorage.getItem('carnet');
+        if (!c) return;
+      }
+      if (likedByMe) {
+        setLikedByMe(false);
+        setLikes((prev) => Math.max(0, prev - 1));
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('publicacion_id', postId)
+          .eq('usuario_carnet', c);
+        if (error) {
+          setLikedByMe(true);
+          setLikes((prev) => prev + 1);
+        }
+      } else {
+        setLikedByMe(true);
+        setLikes((prev) => prev + 1);
+        const { error } = await supabase
+          .from('likes')
+          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true });
+        if (error) {
+          setLikedByMe(false);
+          setLikes((prev) => Math.max(0, prev - 1));
+        }
+      }
+      const { data: pubData } = await supabase
+        .from('publicaciones')
+        .select('likes_count, comentarios_count')
+        .eq('id', postId)
+        .maybeSingle();
+      if (pubData) {
+        if (typeof pubData.likes_count === 'number') setLikes(pubData.likes_count);
+        if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
+      }
+      const { data: mine } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('publicacion_id', postId)
+        .eq('usuario_carnet', c)
+        .maybeSingle();
+      setLikedByMe(!!mine);
+    } catch (err) {
+      console.error('handleLike ViewUserProfile error:', err);
+    }
+  };
+
+  const openComments = async () => {
+    try {
+      if (!selectedPost?.id) return;
+      const { data, error } = await supabase
+        .from('comentarios')
+        .select('contenido, usuario_carnet, created_at')
+        .eq('publicacion_id', selectedPost.id)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      if (!error) {
+        const rows = data || [];
+        const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+        const cache = profileCacheRef.current;
+        const missing = uniqueCarnets.filter(c => !cache.has(c));
+        if (missing.length > 0) {
+          const { data: usuariosData, error: usuariosErr } = await supabase
+            .from('usuarios')
+            .select('carnet, nombre, apellido, foto_perfil')
+            .in('carnet', missing);
+          if (!usuariosErr && Array.isArray(usuariosData)) {
+            usuariosData.forEach(u => {
+              cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
+            });
+          }
+        }
+        const enriched = rows.map(r => {
+          const prof = cache.get(r.usuario_carnet);
+          const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
+          const avatarUrl = prof?.foto_perfil || null;
+          return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+        });
+        setComments(enriched);
+        const { data: pubRow } = await supabase
+          .from('publicaciones')
+          .select('comentarios_count')
+          .eq('id', selectedPost.id)
+          .maybeSingle();
+        if (pubRow && typeof pubRow.comentarios_count === 'number') {
+          setCommentCount(pubRow.comentarios_count);
+        } else {
+          setCommentCount(rows.length);
+        }
+      }
+      setCommentModalVisible(true);
+    } catch (e) {
+      console.error('openComments ViewUserProfile error:', e);
+    }
+  };
+
+  const handleAddComment = async () => {
+    try {
+      const text = newComment.trim();
+      if (!text || !selectedPost?.id) return;
+      let c = miCarnet || (await AsyncStorage.getItem('carnet'));
+      if (!c) return;
+      const { error } = await supabase
+        .from('comentarios')
+        .insert({ publicacion_id: selectedPost.id, usuario_carnet: c, contenido: text });
+      if (!error) {
+        setNewComment('');
+        await openComments();
+      }
+    } catch {}
+  };
+
+  const handleDeleteComment = (commentItem) => {
+    setCommentToDelete(commentItem);
+    setDeleteCommentModalVisible(true);
+  };
+
+  const confirmDeleteComment = async () => {
+    try {
+      if (!commentToDelete || !selectedPost?.id) return;
+      const { error } = await supabase
+        .from('comentarios')
+        .delete()
+        .eq('publicacion_id', selectedPost.id)
+        .eq('usuario_carnet', commentToDelete.usuario)
+        .eq('contenido', commentToDelete.texto)
+        .eq('created_at', commentToDelete.created_at);
+      if (error) throw error;
+      await openComments();
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    } catch (err) {
+      console.error('Error eliminar comentario ViewUserProfile:', err);
+      setDeleteCommentModalVisible(false);
+      setCommentToDelete(null);
+    }
   };
 
   const renderPublicacionGrid = () => {
@@ -408,6 +532,8 @@ const ViewUserProfile = ({ route, navigation }) => {
     );
   };
 
+  const styles = createStyles(darkMode);
+
   if (loading) {
     return (
       <View style={[styles.container, styles.centerContent]}>
@@ -450,8 +576,6 @@ const ViewUserProfile = ({ route, navigation }) => {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
       >
         {/* Header del perfil */}
         <View style={styles.headerContainer}>
@@ -497,154 +621,72 @@ const ViewUserProfile = ({ route, navigation }) => {
         )}
       </View>
 
-      {/* Modal para ver publicación seleccionada */}
-      <Modal
+      {/* Modal para ver publicación seleccionada (reutilizable) */}
+      <PublicationModal
         visible={!!selectedPost}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
+        darkMode={darkMode}
+        post={selectedPost}
+        onClose={() => { setSelectedPost(null); setMenuVisible(null); }}
+        liked={likedByMe}
+        likesCount={likes}
+        onPressLike={handleLike}
+        commentCount={commentCount}
+        onPressComments={openComments}
+        canDelete={false}
+        canReport={!!(selectedPost && selectedPost.carnet_usuario !== miCarnet)}
+        onPressReport={() => setReportModalVisible(true)}
+        sharePayload={{ title: selectedPost?.titulo, message: selectedPost?.descripcion || selectedPost?.titulo, url: selectedPost?.archivo_url }}
+      />
+
+      {/* Modal reutilizable de comentarios */}
+      <CommentsModal
+        visible={commentModalVisible}
+        darkMode={darkMode}
+        comments={comments}
+        commentCount={commentCount}
+        newComment={newComment}
+        onChangeNewComment={setNewComment}
+        onSubmitNewComment={handleAddComment}
+        onRequestClose={() => setCommentModalVisible(false)}
+        meCarnet={miCarnet}
+        onPressAvatar={(carnetUser) => {
+          setCommentModalVisible(false);
           setSelectedPost(null);
-          setMenuVisible(null);
+          if (!carnetUser) return;
+          if (carnetUser === miCarnet) {
+            // Si es mi propio perfil, navegar al tab de Perfil
+            navigation.navigate('MainTabs', { screen: 'Perfil' });
+          } else if (carnetUser === userId) {
+            // Si es el perfil que ya estamos viendo, solo cerrar modales
+            return;
+          } else {
+            // Navegar al perfil de otro usuario
+            navigation.push('ViewUserProfile', { userId: carnetUser });
+          }
         }}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPressOut={() => {
-            setSelectedPost(null);
-            setMenuVisible(null);
-          }}
-        >
-          <View style={styles.centeredView}>
-            <TouchableOpacity
-              activeOpacity={1}
-              style={[styles.modalContent, darkMode && styles.modalContentDark]}
-              onPress={() => setMenuVisible(null)}
-            >
-             
-              {/* Menú de tres puntos en el modal */}
-              {selectedPost && selectedPost.carnet_usuario !== miCarnet && (
-                <View style={styles.overlayButtons}>
-                  <TouchableOpacity 
-                    onPress={() => setMenuVisible(menuVisible === selectedPost.id ? null : selectedPost.id)}
-                    style={styles.overlayButton}
-                  >
-                    <MaterialIcons name="more-vert" size={24} color="#fff" />
-                  </TouchableOpacity>
-
-                  {menuVisible === selectedPost.id && (
-                    <View style={[styles.overlayMenu, darkMode && styles.overlayMenuDark]}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setMenuVisible(null);
-                          setReportModalVisible(true);
-                        }}
-                        style={styles.overlayMenuItem}
-                      >
-                        <MaterialIcons name="flag" size={18} color="#FF3B30" />
-                        <Text style={[styles.overlayMenuText, darkMode && styles.overlayMenuTextDark, { color: '#FF3B30' }]}>Reportar</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              )}
-              {selectedPost?.contenido === 'image' && (
-                <>
-                  <TouchableOpacity onPress={() => {
-                    setMenuVisible(null);
-                    setShowZoom(true);
-                  }}>
-                    <Image
-                      source={{ uri: selectedPost.archivo_url }}
-                      style={styles.previewMedia}
-                      resizeMode="contain"
-                    />
-                  </TouchableOpacity>
-                  <Modal
-                    visible={showZoom}
-                    transparent={true}
-                    onRequestClose={() => setShowZoom(false)}
-                  >
-                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
-                      <TouchableOpacity activeOpacity={1} style={{ flex:1 }} onPress={() => setShowZoom(false)}>
-                        <Image
-                          source={{ uri: selectedPost.archivo_url }}
-                          style={{ width:'100%', height:'100%', resizeMode:'contain' }}
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  </Modal>
-                </>
-              )}
-              {selectedPost?.contenido === 'video' && (
-                <Video
-                  key={videoKey}
-                  source={{ uri: selectedPost.archivo_url }}
-                  style={styles.previewMedia}
-                  useNativeControls
-                  resizeMode="contain"
-                  onEnd={() => setVideoKey(prev => prev + 1)}
-                />
-              )}
-              <Text style={[styles.modalTitle, darkMode && styles.modalTitleDark]}>
-                {selectedPost?.titulo}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                <TouchableOpacity onPress={() => setLikes(likes + 1)} style={{ marginRight: 8 }}>
-                  <MaterialIcons name="thumb-up" size={24} color="#007AFF" />
-                </TouchableOpacity>
-                <Text style={[styles.likesText, darkMode && styles.likesTextDark]}>
-                  {likes} Me gusta
-                </Text>
-              </View>
-
-              <Text style={[styles.sectionTitle, { marginTop: 8, color: darkMode ? '#fff' : '#222', fontSize: 16 }]}>
-                Comentarios:
-              </Text>
-              <ScrollView style={{ maxHeight: 80, marginBottom: 8 }}>
-                {comments.length === 0 ? (
-                  <Text style={[styles.placeholderText, darkMode && styles.placeholderTextDark]}>
-                    Sin comentarios.
-                  </Text>
-                ) : (
-                  comments.map((c, idx) => (
-                    <Text key={idx} style={[styles.commentItem, darkMode && styles.commentItemDark]}>
-                      <Text style={[styles.commentAuthor, darkMode && styles.commentAuthorDark]}>
-                        {c.usuario || 'Usuario'}:{' '}
-                      </Text>
-                      <Text style={[styles.commentText, darkMode && styles.commentTextDark]}>
-                        {c.texto}
-                      </Text>
-                    </Text>
-                  ))
-                )}
-              </ScrollView>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <TextInput
-                  style={[
-                    styles.commentInput,
-                    darkMode && styles.commentInputDark
-                  ]}
-                  placeholder="Escribe un comentario..."
-                  placeholderTextColor={darkMode ? '#bbb' : '#999'}
-                  value={newComment}
-                  onChangeText={setNewComment}
-                />
-                <TouchableOpacity
-                  onPress={() => {
-                    if (newComment.trim()) {
-                      setComments([...comments, { usuario: 'Tú', texto: newComment }]);
-                      setNewComment('');
-                    }
-                  }}
-                  style={{ marginLeft: 8 }}
-                >
-                  <MaterialIcons name="send" size={24} color="#007AFF" />
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
+        onLongPressComment={(c) => {
+          if (!c) return;
+          const mine = (c.usuario === miCarnet);
+          if (mine) handleDeleteComment(c);
+        }}
+      />
+      
+      {/* Confirmación para eliminar comentario */}
+      <Modal transparent visible={deleteCommentModalVisible} animationType="fade" onRequestClose={() => setDeleteCommentModalVisible(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 20 }}>
+          <View style={{ width: '100%', maxWidth: 420, backgroundColor: darkMode ? '#111' : '#fff', borderRadius: 16, padding: 20, alignItems: 'center', elevation: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8, color: darkMode ? '#fff' : '#222' }}>Eliminar comentario</Text>
+            <Text style={{ fontSize: 14, color: darkMode ? '#ddd' : '#444', textAlign: 'center', marginBottom: 16, lineHeight: 20 }}>¿Deseas eliminar este comentario? Esta acción no se puede deshacer.</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+              <TouchableOpacity style={{ flex: 1, paddingVertical: 12, borderRadius: 999, alignItems: 'center', marginHorizontal: 6, backgroundColor: darkMode ? '#333' : '#EEE' }} onPress={() => setDeleteCommentModalVisible(false)}>
+                <Text style={{ color: darkMode ? '#fff' : '#111', fontSize: 16, fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ flex: 1, paddingVertical: 12, borderRadius: 999, alignItems: 'center', marginHorizontal: 6, backgroundColor: '#FF3B30' }} onPress={confirmDeleteComment}>
+                <Text style={{ fontWeight: '700', color: '#fff', fontSize: 16 }}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* Modal de reporte de publicación */}

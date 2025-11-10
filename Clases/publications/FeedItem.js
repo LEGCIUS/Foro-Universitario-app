@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, AppState, TextInput, Modal, FlatList, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions, AppState, TextInput, Modal, FlatList, ScrollView, Pressable, Alert, Share } from 'react-native';
 import { Video } from 'expo-av';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Asset } from 'expo-asset';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import Etiquetas from '../components/Etiquetas';
+import CommentsModal from '../components/CommentsModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 import { useNavigation } from '@react-navigation/native';
@@ -131,7 +132,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       
       // Si es el usuario actual, navegar a la pestaña Perfil
       if (currentUserCarnet === item.userId) {
-        navigation.navigate('Perfil');
+  navigation.navigate('MainTabs', { screen: 'Perfil' });
       } else {
         // Si es otro usuario, navegar a ViewUserProfile
         navigation.navigate('ViewUserProfile', { userId: item.userId });
@@ -370,6 +371,19 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     }
   };
 
+  // Compartir publicación (imagen/video o solo texto)
+  const handleShare = async () => {
+    try {
+      const title = item?.userName ? `Publicación de ${item.userName}` : 'Publicación';
+      const baseText = (item?.text && item.text.trim()) ? item.text.trim() : title;
+      const mediaUrl = item?.mediaUrl || '';
+      const message = mediaUrl ? `${baseText}\n${mediaUrl}` : baseText;
+      await Share.share({ title, message });
+    } catch (e) {
+      // opcional: podríamos mostrar un Alert si falla
+    }
+  };
+
   const handlePlaybackStatusUpdate = (s) => {
     setStatus(s);
     setIsPlaying(s.isPlaying);
@@ -548,13 +562,17 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
               </TouchableOpacity>
 
               <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={() => { closeMenu(); openComments(); }}>
-                <FontAwesome name="comment-o" size={20} color={darkMode ? '#fff' : '#222'} />
+                <MaterialIcons name="comment" size={20} color={darkMode ? '#fff' : '#222'} />
                 <Text style={[styles.inlineCount, darkMode && styles.inlineCountDark]}>{Math.max(0, commentCount)}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity activeOpacity={0.7} style={styles.actionBtnRow} onPress={closeMenu}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.actionBtnRow}
+                onPress={() => { closeMenu(); handleShare(); }}
+              >
                 <MaterialIcons name="share" size={22} color={darkMode ? '#fff' : '#222'} />
-                <Text style={[styles.actionText, darkMode && styles.actionTextDark]}>Compartir</Text>
+                <Text style={[styles.actionText, darkMode && styles.actionTextDark]}></Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity onPress={() => { closeMenu(); setSaved((s) => !s); }}>
@@ -655,87 +673,35 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
         </View>
       )}
 
-      {/* Modal de comentarios básico */}
-      {commentModalVisible && (
-        <Modal transparent animationType="fade" visible={commentModalVisible} onRequestClose={() => setCommentModalVisible(false)}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-            <Pressable style={{ flex: 1 }} onPress={() => setCommentModalVisible(false)} />
-            <View style={{ backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: Dimensions.get('window').height * 0.75, width: '100%' }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 }}>
-                <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e' }}>Comentarios</Text>
-                <TouchableOpacity onPress={() => setCommentModalVisible(false)}>
-                  <MaterialIcons name="close" size={26} color={darkMode ? '#e5e7eb' : '#333'} />
-                </TouchableOpacity>
-              </View>
-              <FlatList
-                data={comments}
-                keyExtractor={(c, idx) => `${c.created_at}-${idx}`}
-                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}
-                showsVerticalScrollIndicator={false}
-                ListEmptyComponent={<Text style={{ color: darkMode ? '#aaa' : '#666', textAlign: 'center', marginTop: 20 }}>Sin comentarios aún.</Text>}
-                renderItem={({ item: c }) => {
-                  const isMyComment = carnet && c.usuario === carnet;
-                  return (
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: darkMode ? '#333' : '#eee' }}>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      onPress={async () => {
-                        let me = carnet;
-                        if (!me) {
-                          try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
-                        }
-                        // Cerrar modal antes de navegar
-                        setCommentModalVisible(false);
-                        if (me && me === c.usuario) {
-                          navigation.navigate('Perfil');
-                        } else {
-                          navigation.navigate('ViewUserProfile', { userId: c.usuario });
-                        }
-                      }}
-                      style={{ marginRight: 10 }}
-                    >
-                      {c.avatarUrl ? (
-                        <Image source={{ uri: c.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#eee' }} />
-                      ) : (
-                        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: darkMode ? '#222' : '#e6eef8', alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ color: darkMode ? '#ddd' : '#0b2545', fontWeight: '700' }}>{(c.displayName || c.usuario || 'U').charAt(0).toUpperCase()}</Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{ flex: 1 }}
-                      activeOpacity={1}
-                      onLongPress={() => {
-                        if (isMyComment) handleDeleteComment(c);
-                      }}
-                    >
-                      <Text style={{ color: darkMode ? '#e5e7eb' : '#222' }}>
-                        <Text style={{ fontWeight: 'bold' }}>{c.displayName || c.usuario}</Text>
-                      </Text>
-                      <Text style={{ color: darkMode ? '#cbd5e1' : '#444', marginTop: 2 }}>{c.texto}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  );
-                }}
-                style={{ maxHeight: Dimensions.get('window').height * 0.55 }}
-              />
-              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#e5e5e5' }}>
-                <TextInput
-                  style={{ flex: 1, borderWidth: 1, borderColor: darkMode ? '#333' : '#e1e7ef', backgroundColor: darkMode ? '#111' : '#fff', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10, color: darkMode ? '#e5e7eb' : '#222' }}
-                  placeholder="Escribe un comentario..."
-                  placeholderTextColor={darkMode ? '#8b93a3' : '#888'}
-                  value={newComment}
-                  onChangeText={setNewComment}
-                  multiline
-                />
-                <TouchableOpacity onPress={handleAddComment} style={{ marginLeft: 10 }}>
-                  <MaterialIcons name="send" size={24} color="#007AFF" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
+      {/* Modal reutilizable de comentarios */}
+      <CommentsModal
+        visible={commentModalVisible}
+        darkMode={darkMode}
+        comments={comments}
+        commentCount={commentCount}
+        newComment={newComment}
+        onChangeNewComment={setNewComment}
+        onSubmitNewComment={handleAddComment}
+        onRequestClose={() => setCommentModalVisible(false)}
+        meCarnet={carnet}
+        onPressAvatar={async (carnetUser) => {
+          let me = carnet;
+          if (!me) {
+            try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
+          }
+          setCommentModalVisible(false);
+          if (me && me === carnetUser) {
+            navigation.navigate('MainTabs', { screen: 'Perfil' });
+          } else {
+            navigation.navigate('ViewUserProfile', { userId: carnetUser });
+          }
+        }}
+        onLongPressComment={(c) => {
+          if (!c) return;
+          const isMyComment = carnet && c.usuario === carnet;
+          if (isMyComment) handleDeleteComment(c);
+        }}
+      />
 
       {/* Modal estilizado para eliminar comentario */}
       <Modal transparent animationType="fade" visible={deleteCommentModalVisible} onRequestClose={() => setDeleteCommentModalVisible(false)}>
@@ -788,7 +754,7 @@ const styles = StyleSheet.create({
   mediaBox: { width: '100%', aspectRatio: 1, backgroundColor: '#f0f0f0' },
   mediaBoxDark: { backgroundColor: '#0f1720' },
   actionsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 10 },
-  actionsLeft: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  actionsLeft: { flexDirection: 'row', alignItems: 'center', gap: 26 },
   actionBtnRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   actionText: { color: '#222', fontSize: 14 },
   actionTextDark: { color: '#ffffff' },

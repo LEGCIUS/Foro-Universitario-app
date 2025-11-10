@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
+import PublicationModal from '../publications/PublicationModal';
+import CommentsModal from '../components/CommentsModal';
 
 export default function AdminScreen({ navigation }) {
   const { darkMode } = useTheme();
@@ -19,6 +21,14 @@ export default function AdminScreen({ navigation }) {
   const [deleteLink, setDeleteLink] = useState('');
   const [target, setTarget] = useState(null); // { report, publication, author }
   const [deleting, setDeleting] = useState(false);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [likesCount, setLikesCount] = useState(0);
+  const [commentCount, setCommentCount] = useState(0);
+  const [likedByMe, setLikedByMe] = useState(false);
+  const [adminCarnet, setAdminCarnet] = useState(null);
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
   // Plantillas rápidas por motivo para agilizar el llenado
   const deletionTemplates = {
     'Incumplimiento de normas': {
@@ -108,7 +118,133 @@ export default function AdminScreen({ navigation }) {
     setRefreshing(false);
   };
 
-  // Ver publicación reportada (reemplaza "Marcar resuelto")
+  // Util: asegurar carnet del admin
+  const ensureCarnet = async () => {
+    try {
+      if (adminCarnet) return adminCarnet;
+      const c = await AsyncStorage.getItem('carnet');
+      if (c) setAdminCarnet(c);
+      return c;
+    } catch (_) { return null; }
+  };
+
+  const fetchCountsAndLikeState = async (pubId) => {
+    try {
+      const [likesRes, commentsRes] = await Promise.all([
+        supabase.from('likes').select('id', { count: 'exact', head: true }).eq('publicacion_id', pubId),
+        supabase.from('comentarios').select('id', { count: 'exact', head: true }).eq('publicacion_id', pubId),
+      ]);
+      if (likesRes && typeof likesRes.count === 'number') setLikesCount(likesRes.count);
+      if (commentsRes && typeof commentsRes.count === 'number') setCommentCount(commentsRes.count);
+      const c = await ensureCarnet();
+      if (c) {
+        const { data: mine } = await supabase
+          .from('likes')
+          .select('id')
+          .eq('publicacion_id', pubId)
+          .eq('usuario_carnet', c)
+          .maybeSingle();
+        setLikedByMe(!!mine);
+      } else {
+        setLikedByMe(false);
+      }
+    } catch (_) {}
+  };
+
+  const handleToggleLike = async () => {
+    try {
+      if (!selectedPost?.id) return;
+      let c = await ensureCarnet();
+      if (!c) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
+        return;
+      }
+      if (likedByMe) {
+        setLikedByMe(false);
+        setLikesCount((prev) => Math.max(0, prev - 1));
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('publicacion_id', selectedPost.id)
+          .eq('usuario_carnet', c);
+        if (error) {
+          setLikedByMe(true);
+          setLikesCount((prev) => prev + 1);
+        }
+      } else {
+        setLikedByMe(true);
+        setLikesCount((prev) => prev + 1);
+        const { error } = await supabase
+          .from('likes')
+          .upsert({ publicacion_id: selectedPost.id, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true });
+        if (error) {
+          setLikedByMe(false);
+          setLikesCount((prev) => Math.max(0, prev - 1));
+        }
+      }
+      await fetchCountsAndLikeState(selectedPost.id);
+    } catch (_) {}
+  };
+
+  const fetchComments = async (pubId) => {
+    try {
+      const { data: rows, error } = await supabase
+        .from('comentarios')
+        .select('contenido, usuario_carnet, created_at')
+        .eq('publicacion_id', pubId)
+        .order('created_at', { ascending: true })
+        .limit(50);
+      if (error) return;
+      const list = rows || [];
+      const uniqueCarnets = Array.from(new Set(list.map(r => r.usuario_carnet).filter(Boolean)));
+      let profiles = new Map();
+      if (uniqueCarnets.length > 0) {
+        try {
+          const { data: usuariosData } = await supabase
+            .from('usuarios')
+            .select('carnet, nombre, apellido, foto_perfil')
+            .in('carnet', uniqueCarnets);
+          (usuariosData || []).forEach(u => profiles.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil }));
+        } catch (_) {}
+      }
+      const enriched = list.map(r => {
+        const prof = profiles.get(r.usuario_carnet);
+        const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
+        const avatarUrl = prof?.foto_perfil || null;
+        return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+      });
+      setComments(enriched);
+      setCommentCount(enriched.length);
+    } catch (_) {}
+  };
+
+  const openComments = async () => {
+    if (!selectedPost?.id) return;
+    await fetchComments(selectedPost.id);
+    setShowCommentModal(true);
+  };
+
+  const handleAddComment = async () => {
+    try {
+      const text = newComment.trim();
+      if (!text || !selectedPost?.id) return;
+      let c = await ensureCarnet();
+      if (!c) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para comentar.');
+        return;
+      }
+      const { error } = await supabase
+        .from('comentarios')
+        .insert({ publicacion_id: selectedPost.id, usuario_carnet: c, contenido: text });
+      if (!error) {
+        setNewComment('');
+        await fetchComments(selectedPost.id);
+        await fetchCountsAndLikeState(selectedPost.id);
+      }
+    } catch (_) {}
+  };
+
+  // Ver publicación reportada en modal reutilizable
   const viewReportedPublication = async (rep) => {
     try {
       if (!rep?.publicacion_id) {
@@ -126,25 +262,70 @@ export default function AdminScreen({ navigation }) {
         Alert.alert('No encontrada', 'La publicación ya no existe.');
         return;
       }
-      // Enriquecer opcionalmente con nombre del autor
+      // Intentar traer contadores si existen, sino fallback a contar manualmente
       try {
-        if (pub.carnet_usuario) {
-          const { data: usr } = await supabase
-            .from('usuarios')
-            .select('nombre')
-            .eq('carnet', pub.carnet_usuario)
-            .maybeSingle();
-          if (usr?.nombre) pub.usuario_nombre = usr.nombre;
+        const { count: likesRaw } = await supabase
+          .from('likes')
+          .select('id', { count: 'exact', head: true })
+          .eq('publicacion_id', rep.publicacion_id);
+        setLikesCount(typeof likesRaw === 'number' ? likesRaw : 0);
+      } catch (_) { setLikesCount(0); }
+      try {
+        const { count: commentsRaw } = await supabase
+          .from('comentarios')
+          .select('id', { count: 'exact', head: true })
+          .eq('publicacion_id', rep.publicacion_id);
+        setCommentCount(typeof commentsRaw === 'number' ? commentsRaw : 0);
+      } catch (_) { setCommentCount(0); }
+      // Normalizar campos para el modal (contenido y etiquetas)
+      // Normalizar etiquetas robustamente contra distintos formatos
+      let normalizedEtiquetas = [];
+      try {
+        if (Array.isArray(pub.etiquetas)) {
+          normalizedEtiquetas = pub.etiquetas.filter(Boolean).map(String);
+        } else if (typeof pub.etiquetas === 'string') {
+          // Intentar parsear JSON primero
+          let parsed = null;
+          try { parsed = JSON.parse(pub.etiquetas); } catch (_) {}
+          if (Array.isArray(parsed)) {
+            normalizedEtiquetas = parsed.filter(Boolean).map(String);
+          } else if (pub.etiquetas.includes(',')) {
+            normalizedEtiquetas = pub.etiquetas.split(',').map(e => e.trim()).filter(Boolean);
+          } else if (pub.etiquetas.trim().length > 0) {
+            normalizedEtiquetas = [pub.etiquetas.trim()];
+          }
         }
-      } catch (_) {}
+      } catch (_) { normalizedEtiquetas = []; }
 
-      // Navegar al visor de publicaciones con un solo item
-      navigation.navigate('Publicaciones', {
-        posts: [pub],
-        initialIndex: 0,
-        darkMode,
+      // Inferir tipo de contenido si falta
+      const guessContenido = (() => {
+        const raw = pub.contenido;
+        if (raw === 'image' || raw === 'video') return raw;
+        const url = pub.archivo_url || '';
+        const lower = url.toLowerCase();
+        if (/(\.mp4|\.mov|\.avi|\.mkv|\.webm)(\?|$)/.test(lower)) return 'video';
+        if (/(\.jpg|\.jpeg|\.png|\.gif|\.webp)(\?|$)/.test(lower)) return 'image';
+        return 'image';
+      })();
+
+      // Asegurar campos mínimos usados por el modal
+      const safeTitulo = (pub.titulo && String(pub.titulo).trim()) || 'Publicación';
+      const safeDescripcion = (pub.descripcion && String(pub.descripcion).trim()) || safeTitulo;
+      const safeArchivo = pub.archivo_url || '';
+      const safeCarnet = pub.carnet_usuario || null;
+
+      setSelectedPost({
+        id: pub.id,
+        archivo_url: safeArchivo,
+        carnet_usuario: safeCarnet,
+        titulo: safeTitulo,
+        descripcion: safeDescripcion,
+        contenido: guessContenido,
+        etiquetas: normalizedEtiquetas,
       });
+      await fetchCountsAndLikeState(pub.id);
     } catch (err) {
+      console.log('viewReportedPublication error detail:', err);
       Alert.alert('Error', err.message || 'No se pudo abrir la publicación.');
     }
   };
@@ -543,6 +724,49 @@ export default function AdminScreen({ navigation }) {
           )}
         />
       )}
+      {/* Modal para ver publicación seleccionada (reutilizable) */}
+      <PublicationModal
+        visible={!!selectedPost}
+        darkMode={darkMode}
+        post={selectedPost}
+        onClose={() => { setSelectedPost(null); setShowCommentModal(false); }}
+        liked={likedByMe}
+        likesCount={likesCount}
+        onPressLike={handleToggleLike}
+        commentCount={commentCount}
+        onPressComments={openComments}
+        canDelete={false}
+        canReport={false}
+        sharePayload={{
+          title: selectedPost?.titulo || 'Publicación',
+          message: selectedPost?.descripcion || selectedPost?.titulo || 'Publicación',
+          url: selectedPost?.archivo_url || undefined,
+        }}
+      />
+
+      {/* Modal de comentarios para Admin (solo lectura/escritura básica) */}
+      <CommentsModal
+        visible={showCommentModal}
+        darkMode={darkMode}
+        comments={comments}
+        commentCount={commentCount}
+        newComment={newComment}
+        onChangeNewComment={setNewComment}
+        onSubmitNewComment={handleAddComment}
+        onRequestClose={() => setShowCommentModal(false)}
+        meCarnet={adminCarnet}
+        onPressAvatar={async (carnetUser) => {
+          setShowCommentModal(false);
+          if (!carnetUser) return;
+          const me = await ensureCarnet();
+          if (me && me === carnetUser) {
+            navigation.navigate('MainTabs', { screen: 'Perfil' });
+          } else {
+            navigation.navigate('ViewUserProfile', { userId: carnetUser });
+          }
+        }}
+        onLongPressComment={() => {}}
+      />
       {/* Modal de eliminación con formulario obligatorio */}
       <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => setShowDeleteModal(false)}>
         <View style={styles.modalOverlay}>
