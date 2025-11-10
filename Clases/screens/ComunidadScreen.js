@@ -26,13 +26,16 @@ const secciones = [
   { nombre: 'Cursos', icono: 'school', color: '#00C6FB' },
   { nombre: 'Videos', icono: 'ondemand-video', color: '#FFB86C' },
   { nombre: 'Tutoriales', icono: 'play-circle-outline', color: '#50fa7b' },
-  { nombre: 'Clases', icono: 'class', color: '#FF5555' },
-  { nombre: 'Biblioteca', icono: 'menu-book', color: '#8be9fd' },
+  { nombre: 'Eventos', icono: 'class', color: '#FF5555' },
+  { nombre: 'Recursos', icono: 'menu-book', color: '#8be9fd' },
 ];
+
+import { useNavigation } from '@react-navigation/native';
 
 export default function ComunidadScreen() {
   const { darkMode } = useTheme();
   const themeStyles = getThemeStyles(darkMode);
+  const navigation = useNavigation();
   return (
     <ScrollView style={[styles.container, themeStyles.container]}>
       {/* Título */}
@@ -53,18 +56,22 @@ export default function ComunidadScreen() {
       {/* Menú de secciones */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 18 }}>
         {secciones.map((sec, idx) => (
-          <TouchableOpacity key={sec.nombre} style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: darkMode ? '#222' : '#f7f7f7',
-            borderRadius: 12,
-            padding: 12,
-            marginBottom: 10,
-            width: '48%',
-            borderWidth: 2,
-            borderColor: sec.color,
-            elevation: 2,
-          }}>
+          <TouchableOpacity
+            key={sec.nombre}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: darkMode ? '#222' : '#f7f7f7',
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 10,
+              width: '48%',
+              borderWidth: 2,
+              borderColor: sec.color,
+              elevation: 2,
+            }}
+            onPress={() => navigation.navigate(sec.nombre)}
+          >
             <Icon name={sec.icono} size={28} color={sec.color} style={{ marginRight: 12 }} />
             <Text style={{ fontSize: 17, fontWeight: '500', color: darkMode ? '#fff' : '#222' }}>{sec.nombre}</Text>
           </TouchableOpacity>

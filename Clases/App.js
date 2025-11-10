@@ -17,6 +17,12 @@ import PublicationsViewer from './publications/PublicationsViewer';
 import { useTheme } from './contexts/ThemeContext'; 
 import AdminScreen from './screens/AdminScreen';
 import ComunidadScreen from './screens/ComunidadScreen';
+import CursosScreen from './Comunidad/CursosScreen';
+import VideosScreen from './Comunidad/VideosScreen';
+import TutorialesScreen from './Comunidad/TutorialesScreen';
+import ClasesScreen from './Comunidad/ClasesScreen';
+import BibliotecaScreen from './Comunidad/BibliotecaScreen';
+import CrearCurso from './Comunidad/CrearCurso';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -108,7 +114,7 @@ export default function App() {
                 <Tab.Screen name="Ventas">
                   {props => <ProductosList {...props} navigation={props.navigation} />}
                 </Tab.Screen>
-                <Tab.Screen name="Comunidad" component={ComunidadScreen} />
+                  <Tab.Screen name="Comunidad" component={ComunidadScreen} />
                 <Tab.Screen name="Perfil" component={PerfilUsuario} />
                 <Tab.Screen name="Config">
                   {props => <SettingScreen {...props} onLogout={handleLogout} />}
@@ -116,6 +122,12 @@ export default function App() {
               </Tab.Navigator>
             )}
           </Stack.Screen>
+            <Stack.Screen name="Cursos" component={CursosScreen} />
+            <Stack.Screen name="Videos" component={VideosScreen} />
+            <Stack.Screen name="Tutoriales" component={TutorialesScreen} />
+            <Stack.Screen name="Clases" component={ClasesScreen} />
+            <Stack.Screen name="Biblioteca" component={BibliotecaScreen} />
+            <Stack.Screen name="CrearCurso" component={CrearCurso} options={{ title: 'Crear Curso' }} />
           <Stack.Screen name="PublicarProducto" component={require('./ventas/PublicarProductoScreen').default} />
           <Stack.Screen
             name="EditarPerfil"
