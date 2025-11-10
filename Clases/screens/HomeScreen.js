@@ -64,7 +64,7 @@ export default function HomeScreen({ onLogout, navigation }) {
   // Helper: mapear fila de publicaciones a modelo para el feed con datos de usuario
   const mapPublicationToPost = useCallback(async (pub) => {
     let userName = 'Usuario';
-    let userAvatar = 'https://i.pravatar.cc/100';
+    let userAvatar = null;
     if (pub?.carnet_usuario) {
       const { data: userData, error: userError } = await supabase
         .from('usuarios')
@@ -73,7 +73,7 @@ export default function HomeScreen({ onLogout, navigation }) {
         .single();
       if (!userError && userData) {
         userName = userData.nombre || userName;
-        userAvatar = userData.foto_perfil || userAvatar;
+        userAvatar = userData.foto_perfil || null;
       }
     }
     // Parsear etiquetas de forma segura

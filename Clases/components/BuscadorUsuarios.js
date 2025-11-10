@@ -1,25 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  StyleSheet, 
-  FlatList, 
-  TouchableOpacity, 
-  Image, 
-  ActivityIndicator,
-  Modal,
-  Alert 
-} from 'react-native';
+import { View, Text, TextInput, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator,Modal,Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
+import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function BuscadorUsuarios({ 
   visible, 
   onClose, 
   onUsuarioSeleccionado 
 }) {
+  const navigation = useNavigation();
   const { darkMode } = useTheme();
   const [busqueda, setBusqueda] = useState('');
   const [usuarios, setUsuarios] = useState([]);
@@ -83,18 +75,36 @@ export default function BuscadorUsuarios({
   const renderUsuario = ({ item }) => (
     <TouchableOpacity 
       style={styles.usuarioItem}
-      onPress={() => {
-        onUsuarioSeleccionado && onUsuarioSeleccionado(item);
-        onClose();
+      onPress={async () => {
+        // Cerrar buscador
+        onClose && onClose();
+
+        // Si el seleccionado soy yo, ir a mi Perfil en MainTabs; si no, a ViewUserProfile
+        try {
+          const me = await AsyncStorage.getItem('carnet');
+          if (me && me === item.carnet) {
+            navigation.navigate('MainTabs', { screen: 'Perfil' });
+          } else {
+            navigation.navigate('ViewUserProfile', { userId: item.carnet });
+          }
+        } catch (_) {
+          navigation.navigate('ViewUserProfile', { userId: item.carnet });
+        }
       }}
       activeOpacity={0.7}
     >
-      <Image 
-        source={{ 
-          uri: item.foto_perfil || 'https://i.pravatar.cc/100?u=' + item.carnet 
-        }} 
-        style={styles.avatar}
-      />
+      {item.foto_perfil ? (
+        <Image 
+          source={{ uri: item.foto_perfil }} 
+          style={styles.avatar}
+        />
+      ) : (
+        <View style={[styles.avatar, { backgroundColor: darkMode ? '#2d3748' : '#cbd5e1', alignItems:'center', justifyContent:'center' }]}>
+          <Text style={{ color: darkMode ? '#fff' : '#1e293b', fontWeight:'700', fontSize:16 }}>
+            {(item.nombre || item.carnet || 'U').charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      )}
       <View style={styles.infoUsuario}>
         <Text style={styles.nombreUsuario}>{item.nombre}</Text>
         <Text style={styles.carnetUsuario}>@{item.carnet}</Text>

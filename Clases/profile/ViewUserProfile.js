@@ -581,12 +581,18 @@ const ViewUserProfile = ({ route, navigation }) => {
         <View style={styles.headerContainer}>
           <View style={styles.perfilInfo}>
           <TouchableOpacity onPress={() => setShowProfilePicZoom(true)}>
-            <Image
-              source={{
-                uri: usuario?.foto_perfil || `https://i.pravatar.cc/150?u=${usuario?.carnet || 'default'}`
-              }}
-              style={styles.avatarGrande}
-            />
+            {usuario?.foto_perfil ? (
+              <Image
+                source={{ uri: usuario.foto_perfil }}
+                style={styles.avatarGrande}
+              />
+            ) : (
+              <View style={[styles.avatarGrande, { backgroundColor: darkMode ? '#2d3748' : '#cbd5e1', alignItems: 'center', justifyContent: 'center' }]}>
+                <Text style={{ color: darkMode ? '#fff' : '#1e293b', fontWeight: '700', fontSize: 40 }}>
+                  {(usuario?.nombre || usuario?.carnet || 'U').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
           <Text style={styles.nombreUsuario}>{usuario?.nombre || 'Usuario'}</Text>
           <Text style={styles.carnetUsuario}>@{usuario?.carnet || 'usuario'}</Text>
@@ -780,10 +786,18 @@ const ViewUserProfile = ({ route, navigation }) => {
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)' }}>
           <TouchableOpacity activeOpacity={1} style={{ flex:1 }} onPress={() => setShowProfilePicZoom(false)}>
-            <Image
-              source={{ uri: usuario?.foto_perfil || `https://i.pravatar.cc/500?u=${usuario?.carnet || 'default'}` }}
-              style={{ width:'100%', height:'100%', resizeMode:'contain' }}
-            />
+            {usuario?.foto_perfil ? (
+              <Image
+                source={{ uri: usuario.foto_perfil }}
+                style={{ width:'100%', height:'100%', resizeMode:'contain' }}
+              />
+            ) : (
+              <View style={{ flex:1, justifyContent:'center', alignItems:'center' }}>
+                <Text style={{ color:'#fff', fontSize:120, fontWeight:'700' }}>
+                  {(usuario?.nombre || usuario?.carnet || 'U').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </Modal>

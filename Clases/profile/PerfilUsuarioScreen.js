@@ -315,14 +315,15 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
         if (scrollTimer.current) {
           clearTimeout(scrollTimer.current);
         }
-        scrollTimer.current = setTimeout(() => updateVisibleVideos(), 50);
+  // Eliminado llamado a updateVisibleVideos (no existe). Si se reintroduce autoplay, implementar función primero.
+  // scrollTimer.current = setTimeout(() => updateVisibleVideos(), 50);
       }}
     >
       <View style={styles.publicacionHeader}>
         <View style={styles.autorInfo}>
           <Image
             source={{
-              uri: usuarioCompleto?.foto_perfil || `https://i.pravatar.cc/40?u=${usuarioCompleto?.carnet || 'default'}`
+              uri: usuarioCompleto?.foto_perfil || 'https://upload.wikimedia.org/wikipedia/commons/8/89/Portrait_Placeholder.png'
             }}
             style={styles.avatarPequeno}
           />
@@ -464,7 +465,7 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
         <View style={styles.perfilInfo}>
           <Image
             source={{
-              uri: usuarioCompleto?.foto_perfil || `https://i.pravatar.cc/150?u=${usuarioCompleto?.carnet || 'default'}`
+              uri: usuarioCompleto?.foto_perfil || 'https://upload.wikimedia.org/wikipedia/commons/8/89/Portrait_Placeholder.png'
             }}
             style={styles.avatarGrande}
           />

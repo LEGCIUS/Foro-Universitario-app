@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Modal, ScrollView, Dimensions, Share, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, ScrollView, Dimensions, Share, Pressable, TextInput } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../../Supabase/supabaseClient';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -24,6 +26,9 @@ export default function PublicationModal({
   const [menuOpen, setMenuOpen] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
   const [videoKey, setVideoKey] = useState(0);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState('Contenido inapropiado');
+  const [reportText, setReportText] = useState('');
 
   if (!post) return null;
 
@@ -55,24 +60,25 @@ export default function PublicationModal({
       onRequestClose={handleClose}
     >
       <Pressable
-        style={{ flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'rgba(0,0,0,0.7)' }}
+        style={{ flex:1, justifyContent:'center', alignItems:'stretch', backgroundColor:'rgba(0,0,0,0.7)' }}
         onPress={handleClose}
       >
-        <View style={{ width:'96%', maxWidth:500 }}>
+        <View style={{ width:'100%' }}>
           <TouchableOpacity
             activeOpacity={1}
             onStartShouldSetResponder={() => true}
             onPress={() => setMenuOpen(false)}
             style={{
               backgroundColor: darkMode ? '#121212' : '#fff',
-              borderRadius: 16,
-              padding: 16,
-              elevation: 5,
-              marginTop: 20,
-              marginBottom: 20,
-              alignSelf: 'center',
+              borderRadius: 0,
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              elevation: 6,
+              marginTop: 0,
+              marginBottom: 0,
+              alignSelf: 'stretch',
               overflow: 'visible',
-              maxHeight: SCREEN_HEIGHT * 0.85,
+              maxHeight: SCREEN_HEIGHT * 0.92,
             }}
           >
             {overlayMenuAvailable && (
@@ -102,7 +108,7 @@ export default function PublicationModal({
                     )}
                     {canReport && (
                       <TouchableOpacity
-                        onPress={() => { setMenuOpen(false); onPressReport && onPressReport(post); }}
+                        onPress={() => { setMenuOpen(false); setReportModalVisible(true); }}
                         style={{ paddingHorizontal:12, paddingVertical:8, alignItems:'center', flexDirection:'row' }}
                       >
                         <MaterialIcons name="flag" size={18} color="#FF3B30" />
@@ -216,6 +222,103 @@ export default function PublicationModal({
           </TouchableOpacity>
         </View>
       </Pressable>
+
+      {/* Modal de reporte (similar a FeedItem): chips + descripción opcional, cerrar al tocar fuera */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={reportModalVisible}
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <Pressable style={{ flex:1, backgroundColor:'rgba(0,0,0,0.75)', justifyContent:'center', alignItems:'center' }} onPress={() => setReportModalVisible(false)}>
+          <Pressable style={{ width:'90%', maxWidth:420, backgroundColor: darkMode ? '#1b1b1b' : '#fff', borderRadius:20, padding:20 }} onPress={(e) => e.stopPropagation()}>
+            <Text style={{ fontSize:18, fontWeight:'700', marginBottom:6, color: darkMode ? '#fff' : '#111' }}>Reportar publicación</Text>
+            <Text style={{ fontSize:14, color: darkMode ? '#ccc' : '#444', marginBottom:14 }}>Selecciona un motivo y agrega una descripción (opcional):</Text>
+
+            <View style={{ flexDirection:'row', flexWrap:'wrap', marginBottom:16 }}>
+              {['Contenido inapropiado','Spam','Acoso','Información falsa','Otro'].map((motivo) => (
+                <TouchableOpacity
+                  key={motivo}
+                  onPress={() => setReportReason(motivo)}
+                  style={{
+                    backgroundColor: reportReason === motivo ? (darkMode ? '#2563eb' : '#1d4ed8') : (darkMode ? '#2d2d2d' : '#f1f5f9'),
+                    paddingHorizontal:14,
+                    paddingVertical:8,
+                    borderRadius:18,
+                    marginRight:8,
+                    marginBottom:8,
+                  }}
+                >
+                  <Text style={{ color: reportReason === motivo ? '#fff' : (darkMode ? '#ddd' : '#333'), fontSize:13, fontWeight:'600' }}>{motivo}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              value={reportText}
+              onChangeText={setReportText}
+              placeholder="Describe el motivo (opcional)"
+              placeholderTextColor={darkMode ? '#777' : '#888'}
+              multiline
+              style={{
+                backgroundColor: darkMode ? '#2a2a2a' : '#f8fafc',
+                borderRadius:12,
+                padding:12,
+                minHeight:80,
+                color: darkMode ? '#fff' : '#111',
+                textAlignVertical:'top',
+                marginBottom:16,
+                fontSize:14
+              }}
+            />
+
+            <View style={{ flexDirection:'row', justifyContent:'flex-end' }}>
+              <TouchableOpacity
+                onPress={() => { setReportModalVisible(false); }}
+                style={{ paddingVertical:10, paddingHorizontal:18, borderRadius:14, backgroundColor: darkMode ? '#333' : '#e2e8f0', marginRight:10 }}
+              >
+                <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight:'600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    // Permitir que el padre maneje el reporte si pasó onPressReport
+                    if (onPressReport) {
+                      onPressReport(post, reportReason, reportText.trim() || null);
+                    } else {
+                      const carnet = await AsyncStorage.getItem('carnet');
+                      if (!carnet) throw new Error('No se encontró el usuario actual');
+                      const payload = {
+                        publicacion_id: post.id,
+                        carnet_reporta: carnet,
+                        carnet_publica: post.userId || null,
+                        motivo: reportReason,
+                        detalle: reportText.trim() || null,
+                        created_at: new Date().toISOString(),
+                      };
+                      await supabase.from('reportes_publicaciones').insert([payload]);
+                    }
+                    setReportModalVisible(false);
+                    setReportText('');
+                    setReportReason('Contenido inapropiado');
+                  } catch (err) {
+                    // opcional: manejo de error (Toast/Alert)
+                  }
+                }}
+                disabled={!reportReason}
+                style={{
+                  paddingVertical:10,
+                  paddingHorizontal:20,
+                  borderRadius:14,
+                  backgroundColor: (!reportReason) ? (darkMode ? '#1f2937' : '#94a3b8') : '#dc2626'
+                }}
+              >
+                <Text style={{ color:'#fff', fontWeight:'700' }}>Enviar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Modal>
   );
 }

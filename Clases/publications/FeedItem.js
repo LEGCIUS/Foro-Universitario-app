@@ -445,7 +445,20 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
               onPress={handleNavigateToProfile}
               activeOpacity={0.7}
             >
-              <Image source={{ uri: item.userAvatar || 'https://i.pravatar.cc/100' }} style={styles.postAvatar} />
+              {item.userAvatar ? (
+                <Image source={{ uri: item.userAvatar }} style={styles.postAvatar} />
+              ) : (
+                <View
+                  style={[
+                    styles.postAvatar,
+                    { backgroundColor: darkMode ? '#2d3748' : '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
+                  ]}
+                >
+                  <Text style={{ color: darkMode ? '#fff' : '#1e293b', fontWeight: '700', fontSize: 14 }}>
+                    {(item.userName || item.userId || item.carnet || 'U').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
               <View>
                 <Text style={[styles.postUser, darkMode && styles.postUserDark]}>{item.userName || 'Usuario'}</Text>
                 <Text style={[styles.postTime, darkMode && styles.postTimeDark]}>{formatRelativeTime(item.fecha)}</Text>
@@ -484,6 +497,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
                     <MaterialIcons name="flag" size={18} color="#FF3B30" />
                     <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
                   </TouchableOpacity>
+                  
                 </View>
               )}
             </View>
@@ -611,67 +625,98 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
         </View>
       </View>
 
-      {/* Modal de reporte */}
-      {reportModalVisible && (
-        <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
-            <View style={{ width: '96%', maxWidth: 420, backgroundColor: darkMode ? '#171717' : '#fff', borderRadius: 16, padding: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 12 }}>Reportar publicación</Text>
-              <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginBottom: 10 }}>Indica el motivo del reporte.</Text>
-              {['Contenido inapropiado','Violencia','Odio o acoso','Spam o engaño','Otro'].map((motivo) => (
+      {/* Modal de reporte (bloqueante, siempre con descripción opcional) */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={reportModalVisible}
+        onRequestClose={() => setReportModalVisible(false)}
+      >
+        <Pressable style={{ flex:1, backgroundColor:'rgba(0,0,0,0.75)', justifyContent:'center', alignItems:'center' }} onPress={() => setReportModalVisible(false)}>
+          <Pressable style={{ width:'90%', maxWidth:420, backgroundColor: darkMode ? '#1b1b1b' : '#fff', borderRadius:20, padding:20 }} onPress={(e) => e.stopPropagation()}>
+            <Text style={{ fontSize:18, fontWeight:'700', marginBottom:6, color: darkMode ? '#fff' : '#111' }}>Reportar publicación</Text>
+            <Text style={{ fontSize:14, color: darkMode ? '#ccc' : '#444', marginBottom:14 }}>Selecciona un motivo y agrega una descripción (opcional):</Text>
+
+            <View style={{ flexDirection:'row', flexWrap:'wrap', marginBottom:16 }}>
+              {['Contenido inapropiado','Spam','Acoso','Información falsa','Otro'].map((motivo) => (
                 <TouchableOpacity
                   key={motivo}
                   onPress={() => setReportReason(motivo)}
-                  style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: reportReason === motivo ? '#FF3B30' : (darkMode ? '#333' : '#e5e7eb'), backgroundColor: reportReason === motivo ? (darkMode ? '#2a1b1b' : '#ffeceb') : 'transparent' }}
+                  style={{
+                    backgroundColor: reportReason === motivo ? (darkMode ? '#2563eb' : '#1d4ed8') : (darkMode ? '#2d2d2d' : '#f1f5f9'),
+                    paddingHorizontal:14,
+                    paddingVertical:8,
+                    borderRadius:18,
+                    marginRight:8,
+                    marginBottom:8,
+                  }}
                 >
-                  <Text style={{ color: darkMode ? '#eee' : '#222', fontWeight: reportReason === motivo ? '700' : '500' }}>{motivo}</Text>
+                  <Text style={{ color: reportReason === motivo ? '#fff' : (darkMode ? '#ddd' : '#333'), fontSize:13, fontWeight:'600' }}>{motivo}</Text>
                 </TouchableOpacity>
               ))}
-              <Text style={{ fontSize: 14, color: darkMode ? '#ccc' : '#444', marginTop: 6, marginBottom: 6 }}>Comentario (opcional)</Text>
-              <TextInput
-                value={reportText}
-                onChangeText={setReportText}
-                placeholder="Describe el problema (opcional)"
-                placeholderTextColor={darkMode ? '#888' : '#999'}
-                multiline
-                style={{ minHeight: 80, borderWidth: 1, borderColor: darkMode ? '#333' : '#e5e7eb', borderRadius: 10, padding: 10, backgroundColor: darkMode ? '#111' : '#fafafa', color: darkMode ? '#fff' : '#111', textAlignVertical: 'top' }}
-              />
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 14 }}>
-                <TouchableOpacity onPress={() => { closeMenu(); setReportModalVisible(false); }} style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, marginRight: 8, backgroundColor: darkMode ? '#333' : '#eee' }}>
-                  <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight: '600' }}>Cancelar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={async () => {
-                    try {
-                      const carnet = await AsyncStorage.getItem('carnet');
-                      if (!carnet) throw new Error('No se encontró el usuario actual');
-                      const payload = {
-                        publicacion_id: item.id,
-                        carnet_reporta: carnet,
-                        carnet_publica: item.userId || null,
-                        motivo: reportReason,
-                        detalle: reportText || null,
-                        created_at: new Date().toISOString(),
-                      };
-                      const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
-                      if (error) throw error;
-                      closeMenu();
-                      setReportModalVisible(false);
-                      setReportText('');
-                      setReportReason('Contenido inapropiado');
-                    } catch (err) {
-                      // Optional: show toast
-                    }
-                  }}
-                  style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#FF3B30' }}
-                >
-                  <Text style={{ color: '#fff', fontWeight: '700' }}>Enviar reporte</Text>
-                </TouchableOpacity>
-              </View>
             </View>
-          </View>
-        </View>
-      )}
+            <TextInput
+              value={reportText}
+              onChangeText={setReportText}
+              placeholder="Describe el motivo (opcional)"
+              placeholderTextColor={darkMode ? '#777' : '#888'}
+              multiline
+              style={{
+                backgroundColor: darkMode ? '#2a2a2a' : '#f8fafc',
+                borderRadius:12,
+                padding:12,
+                minHeight:80,
+                color: darkMode ? '#fff' : '#111',
+                textAlignVertical:'top',
+                marginBottom:16,
+                fontSize:14
+              }}
+            />
+
+            <View style={{ flexDirection:'row', justifyContent:'flex-end' }}>
+              <TouchableOpacity
+                onPress={() => { setReportModalVisible(false); }}
+                style={{ paddingVertical:10, paddingHorizontal:18, borderRadius:14, backgroundColor: darkMode ? '#333' : '#e2e8f0', marginRight:10 }}
+              >
+                <Text style={{ color: darkMode ? '#fff' : '#111', fontWeight:'600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    const carnet = await AsyncStorage.getItem('carnet');
+                    if (!carnet) throw new Error('No se encontró el usuario actual');
+                    const motivo = reportReason;
+                    const payload = {
+                      publicacion_id: item.id,
+                      carnet_reporta: carnet,
+                      carnet_publica: item.userId || null,
+                      motivo,
+                      detalle: reportText.trim() || null,
+                      created_at: new Date().toISOString(),
+                    };
+                    const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
+                    if (error) throw error;
+                    setReportModalVisible(false);
+                    setReportText('');
+                    setReportReason('Contenido inapropiado');
+                  } catch (err) {
+                    // Optional: show toast
+                  }
+                }}
+                disabled={!reportReason}
+                style={{
+                  paddingVertical:10,
+                  paddingHorizontal:20,
+                  borderRadius:14,
+                  backgroundColor: (!reportReason) ? (darkMode ? '#1f2937' : '#94a3b8') : '#dc2626'
+                }}
+              >
+                <Text style={{ color:'#fff', fontWeight:'700' }}>Enviar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Modal reutilizable de comentarios */}
       <CommentsModal
@@ -720,6 +765,8 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
           </Pressable>
         </Pressable>
       </Modal>
+
+      
     </>
   );
 }

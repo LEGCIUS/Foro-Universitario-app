@@ -491,14 +491,13 @@ function PublicacionesTab({ usuario, darkMode }) {
         .eq('carnet_usuario', usuario.carnet);
       // 3) Actualizar UI
       setPosts((prev) => prev.filter((p) => p.id !== post.id));
-      setSelectedPost(null);
-      setConfirmDeleteVisible(false);
-      setPendingDeletePost(null);
-      Alert.alert('Eliminada', 'La publicación se eliminó correctamente.');
+  setSelectedPost(null);
+  setConfirmDeleteVisible(false);
+  setPendingDeletePost(null);
     } catch (err) {
       setConfirmDeleteVisible(false);
       setPendingDeletePost(null);
-      Alert.alert('Error', 'No se pudo eliminar la publicación.');
+  Alert.alert('Error', 'No se pudo eliminar la publicación.');
     }
   };
 
