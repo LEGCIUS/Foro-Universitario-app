@@ -72,6 +72,32 @@ export default function LoginScreen({ onLogin }) {
     setRegForm((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Garantiza que exista una fila en "usuarios" para el carnet logueado
+  const ensureUsuarioRow = async (carnet, contrasenaPlano) => {
+    try {
+      if (!carnet) return;
+      const payload = {
+        carnet: carnet.trim(),
+        // Nota: usamos la contraseña ingresada para cumplir NOT NULL.
+        // No sobreescribimos si ya existe, gracias a ignoreDuplicates.
+        contrasena: String(contrasenaPlano ?? '').trim() || 'temporal',
+      };
+
+      const { error: upsertError } = await supabase
+        .from('usuarios')
+        .upsert(payload, {
+          onConflict: 'carnet',
+          ignoreDuplicates: true, // Si ya existe, no lo toca
+        });
+
+      if (upsertError) {
+        console.error('Error al asegurar fila en usuarios:', upsertError);
+      }
+    } catch (e) {
+      console.error('Excepción asegurando usuarios:', e);
+    }
+  };
+
   const handleLogin = async () => {
     setError(null);
     setLoading(true);
@@ -81,8 +107,6 @@ export default function LoginScreen({ onLogin }) {
         throw new Error('Carnet y contraseña son obligatorios');
       }
 
-      console.log('🔐 Iniciando login para:', form.carnet);
-
       // Llamar a Edge Function para login con bcrypt
       const { data, error: loginError } = await supabase.functions.invoke('login-user', {
         body: {
@@ -91,10 +115,8 @@ export default function LoginScreen({ onLogin }) {
         }
       });
 
-      console.log('Respuesta login:', { data, error: loginError });
-
       if (loginError) {
-        console.error('⚠️ Error de Edge Function, intentando método directo...', loginError);
+        console.error('Error de Edge Function, intentando método directo...', loginError);
         
         // Fallback: Intentar login directo desde base de datos
         const { data: usuario, error: dbError } = await supabase
@@ -128,8 +150,9 @@ export default function LoginScreen({ onLogin }) {
           }
         }
 
-        console.log('✅ Login exitoso (método directo)');
         await AsyncStorage.setItem('carnet', form.carnet);
+        // Intentar crear la fila en usuarios si no existe (no sobrescribe si existe)
+        await ensureUsuarioRow(form.carnet, form.contrasena);
         onLogin();
         return;
       }
@@ -139,12 +162,12 @@ export default function LoginScreen({ onLogin }) {
         throw new Error(data?.error || 'Credenciales incorrectas');
       }
 
-      console.log('✅ Login exitoso');
-
-      await AsyncStorage.setItem('carnet', form.carnet);
+  await AsyncStorage.setItem('carnet', form.carnet);
+  // Intentar crear la fila en usuarios si no existe (no sobrescribe si existe)
+  await ensureUsuarioRow(form.carnet, form.contrasena);
       onLogin();
     } catch (err) {
-      console.error('❌ Error en login:', err);
+      console.error('Error en login:', err);
       setError(err.message || "Ocurrió un error al iniciar sesión.");
     } finally {
       setLoading(false);
@@ -164,15 +187,13 @@ export default function LoginScreen({ onLogin }) {
 
         const { carnet, nombre, apellido, correo, carrera } = regForm;
 
-        // Validaciones: carnet, nombre, apellido y correo obligatorios
-        if (!carnet || !correo || !nombre || !apellido) {
-          throw new Error('Carnet, nombre, apellido y correo son obligatorios');
+        // Validaciones: carnet, nombre, apellido, correo y carrera obligatorios
+        if (!carnet || !correo || !nombre || !apellido || !carrera) {
+          throw new Error('Carnet, nombre, apellido, correo y carrera son obligatorios');
         }
         if (!validarEmail(correo)) {
           throw new Error('Correo no válido');
         }
-
-        console.log('📝 Registrando usuario:', carnet, correo);
 
         // Llamar a Edge Function para registro
         const { data, error: registerError } = await supabase.functions.invoke('user-signup', {
@@ -185,19 +206,66 @@ export default function LoginScreen({ onLogin }) {
           }
         });
 
-        console.log('Respuesta Edge Function:', { data, error: registerError });
+        if (registerError || !data?.success) {
+          // Construir mensaje amigable: carnet duplicado / correo en uso
+          let serverMsg = null;
+          let serverCode = null;
+          try {
+            if (registerError?.context?.body) {
+              const raw = registerError.context.body;
+              try {
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                serverMsg = parsed?.message || parsed?.error || null;
+                serverCode = parsed?.code || parsed?.error_code || null;
+              } catch (_) {
+                serverMsg = String(raw);
+              }
+            } else if (data && !data.success) {
+              serverMsg = data?.message || data?.error || null;
+              serverCode = data?.code || data?.error_code || null;
+            }
+          } catch (_) {}
 
-        if (registerError) {
-          console.error('Error de Edge Function:', registerError);
-          throw new Error(registerError.message || 'Error al comunicarse con el servidor');
+          // Mapear códigos/mensajes comunes
+          let userMsg = null;
+          const lower = (serverMsg || '').toLowerCase();
+          let serverCarnetDup = false;
+          let serverEmailDup = false;
+          if (serverCode === 'DUPLICATE_CARNET' || (lower.includes('carnet') && (lower.includes('existe') || lower.includes('duplic') || lower.includes('registrad')))) {
+            serverCarnetDup = true;
+          }
+          if (serverCode === 'EMAIL_IN_USE' || (lower.includes('correo') && (lower.includes('existe') || lower.includes('uso') || lower.includes('registrad')))) {
+            serverEmailDup = true;
+          }
+          if (serverCarnetDup && serverEmailDup) {
+            userMsg = 'El carnet y el correo ya están en uso.';
+          } else if (serverCarnetDup) {
+            userMsg = 'El carnet ya está registrado.';
+          } else if (serverEmailDup) {
+            userMsg = 'El correo ya está en uso.';
+          }
+
+          // Si no quedó claro, verificar en la BD para dar feedback específico
+          if (!userMsg) {
+            try {
+              const [carnetDupRes, correoDupRes] = await Promise.all([
+                supabase.from('usuarios').select('carnet').eq('carnet', carnet.trim()).maybeSingle(),
+                supabase.from('usuarios').select('correo').eq('correo', correo.trim().toLowerCase()).maybeSingle(),
+              ]);
+              const carnetDup = !!carnetDupRes?.data;
+              const correoDup = !!correoDupRes?.data;
+              if (carnetDup && correoDup) {
+                userMsg = 'El carnet y el correo ya están en uso.';
+              } else if (carnetDup) {
+                userMsg = 'El carnet ya está registrado.';
+              } else if (correoDup) {
+                userMsg = 'El correo ya está en uso.';
+              }
+            } catch (_) {}
+          }
+
+          throw new Error(userMsg || serverMsg || 'No se pudo completar el registro');
         }
-
-        if (!data?.success) {
-          console.error('Edge Function retornó error:', data);
-          throw new Error(data?.error || 'Error al registrar usuario');
-        }
-
-        console.log('✅ Usuario registrado exitosamente');
         
         // Mostrar mensaje de éxito
         setRegSuccess(true);
@@ -213,7 +281,7 @@ export default function LoginScreen({ onLogin }) {
         });
 
       } catch (err) {
-        console.error('❌ Error en registro:', err);
+        // Mostrar el error solo en la UI, sin log de consola para evitar overlay de Expo
         setRegError(err.message || 'No se pudo completar el registro');
         setRegSuccess(false);
       } finally {
@@ -379,6 +447,9 @@ export default function LoginScreen({ onLogin }) {
                           value={regForm.carnet}
                           onChangeText={(text) => handleRegChange('carnet', text)}
                           editable={!regLoading}
+                          autoComplete="off"
+                          textContentType="none"
+                          importantForAutofill="no"
                           autoCapitalize="none"
                         />
                       </View>
@@ -445,12 +516,14 @@ export default function LoginScreen({ onLogin }) {
                           editable={!regLoading}
                           autoCapitalize="none"
                           keyboardType="email-address"
+                          autoComplete="email"
+                          textContentType="emailAddress"
                         />
                       </View>
                     </View>
 
                     <View style={[styles.inputGroupBetter, { marginBottom: responsive.spacing.md }]}>
-                      <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Carrera (opcional)</Text>
+                      <Text style={[styles.inputLabelBetter, { fontSize: responsive.fontSize.sm }]}>Carrera *</Text>
                       <TouchableOpacity 
                         style={[styles.pickerContainer, { 
                           backgroundColor: '#fff', 

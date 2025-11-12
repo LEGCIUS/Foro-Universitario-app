@@ -599,7 +599,7 @@ function PublicacionesTab({ usuario, darkMode }) {
       if (!selectedPost?.id) return;
       const { data, error } = await supabase
         .from('comentarios')
-        .select('contenido, usuario_carnet, created_at')
+        .select('id, contenido, usuario_carnet, created_at, likes_count')
         .eq('publicacion_id', selectedPost.id)
         .order('created_at', { ascending: true })
         .limit(50);
@@ -623,7 +623,15 @@ function PublicacionesTab({ usuario, darkMode }) {
           const prof = cache.get(r.usuario_carnet);
           const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
           const avatarUrl = prof?.foto_perfil || null;
-          return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+          return { 
+            id: r.id,
+            usuario: r.usuario_carnet, 
+            displayName, 
+            avatarUrl, 
+            texto: r.contenido, 
+            created_at: r.created_at,
+            likes_count: r.likes_count || 0
+          };
         });
         setComments(enriched);
         // actualizar conteo

@@ -209,14 +209,9 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       let c = carnet;
       if (!c) {
         c = await AsyncStorage.getItem('carnet');
-        if (!c) {
-          console.warn('No carnet found for like');
-          return;
-        }
+        if (!c) return;
         setCarnet(c);
       }
-
-      console.log('FeedItem handleLike', { postId, carnet: c });
 
       if (liked) {
         // Optimistic unlike
@@ -236,7 +231,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
         // Optimistic like
         setLiked(true);
         setLikeCount((prev) => prev + 1);
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('likes')
           .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true })
           .select('id')
@@ -245,8 +240,6 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
           console.error('Error UPSERT like:', error);
           setLiked(false);
           setLikeCount((prev) => Math.max(0, prev - 1));
-        } else {
-          console.log('UPSERT like ok', data);
         }
       }
 
@@ -278,7 +271,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       if (!item?.id) return;
       const { data, error } = await supabase
         .from('comentarios')
-        .select('contenido, usuario_carnet, created_at')
+        .select('id, contenido, usuario_carnet, created_at, likes_count')
         .eq('publicacion_id', item.id)
         .order('created_at', { ascending: true })
         .limit(50);
@@ -305,7 +298,15 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
           const prof = cache.get(r.usuario_carnet);
           const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
           const avatarUrl = prof?.foto_perfil || null;
-          return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+          return { 
+            id: r.id,
+            usuario: r.usuario_carnet, 
+            displayName, 
+            avatarUrl, 
+            texto: r.contenido, 
+            created_at: r.created_at,
+            likes_count: r.likes_count || 0
+          };
         });
         setComments(enriched);
         // Sync comment count (fallback to loaded rows if DB count absent)
