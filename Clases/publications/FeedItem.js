@@ -54,6 +54,10 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportReason, setReportReason] = useState('Contenido inapropiado');
   const [reportText, setReportText] = useState('');
+  // Eliminar publicación propia
+  const [deletePostModalVisible, setDeletePostModalVisible] = useState(false);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   // Comentarios (modal básico)
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [comments, setComments] = useState([]);
@@ -89,6 +93,12 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
       closeMenu();
     }
   }, [closeSignal]);
+
+  // Determinar si soy dueño de la publicación
+  const isOwner = useMemo(() => {
+    const ownerCarnet = item?.userId || item?.carnet || item?.carnet_usuario || item?.usuario_carnet || null;
+    return !!(carnet && ownerCarnet && String(carnet) === String(ownerCarnet));
+  }, [carnet, item?.userId, item?.carnet, item?.carnet_usuario, item?.usuario_carnet]);
 
   // Cargar estado de likes al montar o cuando el item se hace visible
   useEffect(() => {
@@ -435,6 +445,60 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     videoRef.current?.setIsMutedAsync(!!isMuted);
   }, [isMuted]);
 
+  // Si ya fue eliminada, no renderizar
+  if (deleted) return null;
+
+  // Helper para extraer la ruta en el bucket desde una URL pública de supabase storage
+  const extractMultimediaPath = (publicUrl) => {
+    if (!publicUrl || typeof publicUrl !== 'string') return null;
+    try {
+      const u = new URL(publicUrl);
+      const marker = '/object/public/multimedia/';
+      const idx = u.pathname.indexOf(marker);
+      if (idx !== -1) return decodeURIComponent(u.pathname.substring(idx + marker.length));
+      const parts = publicUrl.split('?')[0].split('/multimedia/');
+      if (parts[1]) return decodeURIComponent(parts[1]);
+    } catch (_) {
+      const parts = (publicUrl || '').split('?')[0].split('/multimedia/');
+      if (parts[1]) return decodeURIComponent(parts[1]);
+    }
+    return null;
+  };
+
+  const handleDeletePost = () => {
+    closeMenu();
+    if (!isOwner) return; // seguridad
+    setDeletePostModalVisible(true);
+  };
+
+  const confirmDeletePost = async () => {
+    try {
+      if (!item?.id) return;
+      setDeletingPost(true);
+      // 1) Eliminar archivo del storage si aplica
+      const storagePath = extractMultimediaPath(item.mediaUrl || item.archivo_url);
+      if (storagePath) {
+        try { await supabase.storage.from('multimedia').remove([storagePath]); } catch (_) {}
+      }
+      // 2) Eliminar fila en BD, asegurando que sea mía
+      const c = carnet || (await AsyncStorage.getItem('carnet'));
+      const { error } = await supabase
+        .from('publicaciones')
+        .delete()
+        .eq('id', item.id)
+        .eq('carnet_usuario', c);
+      if (error) throw error;
+      // 3) Ocultar del feed
+      setDeletingPost(false);
+      setDeletePostModalVisible(false);
+      setDeleted(true);
+    } catch (err) {
+      setDeletingPost(false);
+      setDeletePostModalVisible(false);
+      try { Alert.alert('Error', err?.message || 'No se pudo eliminar la publicación.'); } catch {}
+    }
+  };
+
   return (
     <>
       <View style={{ position: 'relative' }}>
@@ -488,16 +552,26 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
                   borderColor: '#e5e7eb',
                   zIndex: 9999,
                 }}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      closeMenu();
-                      setReportModalVisible(true);
-                    }}
-                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
-                  >
-                    <MaterialIcons name="flag" size={18} color="#FF3B30" />
-                    <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
-                  </TouchableOpacity>
+                  {isOwner ? (
+                    <TouchableOpacity
+                      onPress={handleDeletePost}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
+                    >
+                      <MaterialIcons name="delete" size={18} color="#FF3B30" />
+                      <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Eliminar</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => {
+                        closeMenu();
+                        setReportModalVisible(true);
+                      }}
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6 }}
+                    >
+                      <MaterialIcons name="flag" size={18} color="#FF3B30" />
+                      <Text style={{ marginLeft: 8, color: '#FF3B30', fontWeight: '600' }}>Reportar</Text>
+                    </TouchableOpacity>
+                  )}
                   
                 </View>
               )}
@@ -713,6 +787,24 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
                 }}
               >
                 <Text style={{ color:'#fff', fontWeight:'700' }}>Enviar</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modal estilizado para eliminar publicación propia */}
+      <Modal transparent animationType="fade" visible={deletePostModalVisible} onRequestClose={() => setDeletePostModalVisible(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }} onPress={() => setDeletePostModalVisible(false)}>
+          <Pressable style={{ width: '85%', maxWidth: 400, backgroundColor: darkMode ? '#1a1a2e' : '#fff', borderRadius: 16, padding: 24, elevation: 10 }} onPress={(e) => e.stopPropagation()}>
+            <Text style={{ fontSize: 20, fontWeight: '700', color: darkMode ? '#e5e7eb' : '#1a1a2e', marginBottom: 12, textAlign: 'center' }}>Eliminar publicación</Text>
+            <Text style={{ fontSize: 15, color: darkMode ? '#cbd5e1' : '#666', marginBottom: 24, textAlign: 'center' }}>¿Estás seguro de que quieres eliminar esta publicación?</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+              <TouchableOpacity disabled={deletingPost} onPress={() => setDeletePostModalVisible(false)} style={{ flex: 1, paddingVertical: 12, backgroundColor: darkMode ? '#333' : '#e5e5e5', borderRadius: 10, alignItems: 'center' }}>
+                <Text style={{ color: darkMode ? '#e5e7eb' : '#222', fontSize: 16, fontWeight: '600' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity disabled={deletingPost} onPress={confirmDeletePost} style={{ flex: 1, paddingVertical: 12, backgroundColor: '#FF3B30', borderRadius: 10, alignItems: 'center', opacity: deletingPost ? 0.7 : 1 }}>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{deletingPost ? 'Eliminando…' : 'Eliminar'}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>

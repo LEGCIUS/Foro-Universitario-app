@@ -11,6 +11,7 @@ import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import PerfilUsuario from './profile/PerfilUsuario';
 import SettingScreen from './screens/SettingScreen';
+import ChangePasswordScreen from './screens/ChangePasswordScreen';
 import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
 import PublicationsViewer from './publications/PublicationsViewer';
@@ -144,6 +145,11 @@ export default function App() {
           <Stack.Screen
             name="PerfilUsuario"
             component={require('./profile/PerfilUsuarioScreen').default}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ChangePassword"
+            component={ChangePasswordScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

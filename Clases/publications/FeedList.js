@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, FlatList } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import FeedItem from './FeedItem';
 
-export default function FeedList({ posts = [], isScreenFocused = true, closeSignal = 0 }) {
+export default function FeedList({ posts = [], isScreenFocused = true, closeSignal = 0, refreshing = false, onRefresh }) {
   const { darkMode } = useTheme();
   const [visibleIds, setVisibleIds] = useState(new Set());
   const [scrollToken, setScrollToken] = useState(0);
@@ -63,6 +63,17 @@ export default function FeedList({ posts = [], isScreenFocused = true, closeSign
       viewabilityConfig={viewabilityConfigRef.current}
       onScrollBeginDrag={() => setScrollToken(t => t + 1)}
       onMomentumScrollBegin={() => setScrollToken(t => t + 1)}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={darkMode ? ['#007AFF'] : ['#007AFF']}
+            tintColor={darkMode ? '#007AFF' : '#007AFF'}
+            progressBackgroundColor={darkMode ? '#2b2b2b' : '#fff'}
+          />
+        ) : undefined
+      }
       ItemSeparatorComponent={() => (
         <View style={[styles.separator, { backgroundColor: darkMode ? '#2b2b2b' : '#eaeaea' }]} />
       )}

@@ -199,6 +199,14 @@ const SettingScreen = ({ onLogout, navigation }) => {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: darkMode ? '#e5e7eb' : '#475569' }]}>Cuenta</Text>
           <ListItem
+            title="Cambiar contraseña"
+            subtitle="Actualiza tu contraseña de acceso"
+            icon="lock"
+            iconBg={darkMode ? '#2a2844' : '#eef2ff'}
+            iconColor={darkMode ? '#9ab' : '#2563EB'}
+            onPress={() => navigation.navigate('ChangePassword')}
+          />
+          <ListItem
             title="Cerrar sesión"
             icon="logout"
             iconBg={darkMode ? '#3b1f1f' : '#ffecec'}

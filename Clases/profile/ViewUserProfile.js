@@ -1,22 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Image,
-  TouchableOpacity,
-  ActivityIndicator,
-  Dimensions,
-  RefreshControl,
-  Modal,
-  TextInput,
-  Alert,
-} from 'react-native';
+import {View,Text,StyleSheet,ScrollView,Image,TouchableOpacity,ActivityIndicator,Dimensions,RefreshControl,TextInput,Alert,Modal,Platform,StatusBar} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { useIsFocused } from '@react-navigation/native';
+import { CommonActions } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../../Supabase/supabaseClient';
 import CommentsModal from '../components/CommentsModal';
@@ -30,6 +19,7 @@ const ViewUserProfile = ({ route, navigation }) => {
   const { userId } = route.params || {}; // carnet del usuario a ver
   const { darkMode } = useTheme();
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
 
   const [usuario, setUsuario] = useState(null);
   const [publicaciones, setPublicaciones] = useState([]);
@@ -70,6 +60,9 @@ const ViewUserProfile = ({ route, navigation }) => {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportReason, setReportReason] = useState('Contenido inapropiado');
   const [reportText, setReportText] = useState('');
+  
+  // Estado para menú del header
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
 
   // Cargar mi carnet al montar
   useEffect(() => {
@@ -567,15 +560,51 @@ const ViewUserProfile = ({ route, navigation }) => {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      {/* Header fijo que sigue al scroll */}
-      <View style={[styles.fixedHeader, darkMode && styles.fixedHeaderDark]}>
-        <TouchableOpacity
-          style={styles.fixedBackButton}
-          onPress={() => navigation.goBack()}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#fff' : '#000'} />
-        </TouchableOpacity>
+    <View style={{ flex: 1, backgroundColor: darkMode ? '#111' : '#f5f5f5' }}>
+      {/* Header fijo estilo HomeScreen */}
+      <View style={{ paddingTop: Math.max(10, insets.top + 4), backgroundColor: darkMode ? '#111' : '#fff', borderBottomWidth: 1, borderBottomColor: darkMode ? '#333' : '#eee' }}>
+        <View style={[styles.header, darkMode && styles.headerDark]}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => {
+              // Limpiar toda la pila de ViewUserProfile y resetear a Inicio
+              navigation.dispatch(
+                CommonActions.reset({
+                  index: 0,
+                  routes: [{ name: 'MainTabs', params: { screen: 'Inicio' } }],
+                })
+              );
+            }}
+          >
+            <MaterialIcons name="arrow-back" size={26} color={darkMode ? '#fff' : '#000'} />
+          </TouchableOpacity>
+          
+          <View style={{ flex: 1 }} />
+          
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity
+              style={styles.headerMenuButton}
+              onPress={() => setHeaderMenuOpen(!headerMenuOpen)}
+            >
+              <MaterialIcons name="more-vert" size={24} color={darkMode ? '#fff' : '#000'} />
+            </TouchableOpacity>
+            
+            {headerMenuOpen && (
+              <View style={[styles.headerMenu, darkMode && styles.headerMenuDark]}>
+                <TouchableOpacity
+                  style={styles.headerMenuItem}
+                  onPress={() => {
+                    setHeaderMenuOpen(false);
+                    setReportModalVisible(true);
+                  }}
+                >
+                  <MaterialIcons name="flag" size={18} color="#FF3B30" />
+                  <Text style={[styles.headerMenuText, darkMode && styles.headerMenuTextDark]}>Reportar usuario</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
       </View>
 
       <ScrollView 
@@ -585,27 +614,84 @@ const ViewUserProfile = ({ route, navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Header del perfil */}
+        {/* Header del perfil: foto izquierda + info derecha */}
         <View style={styles.headerContainer}>
-          <View style={styles.perfilInfo}>
-          <TouchableOpacity onPress={() => setShowProfilePicZoom(true)}>
-            {usuario?.foto_perfil ? (
-              <Image
-                source={{ uri: usuario.foto_perfil }}
-                style={styles.avatarGrande}
-              />
-            ) : (
-              <View style={[styles.avatarGrande, { backgroundColor: darkMode ? '#2d3748' : '#cbd5e1', alignItems: 'center', justifyContent: 'center' }]}>
-                <Text style={{ color: darkMode ? '#fff' : '#1e293b', fontWeight: '700', fontSize: 40 }}>
-                  {(usuario?.nombre || usuario?.carnet || 'U').charAt(0).toUpperCase()}
+          <View style={styles.perfilRow}>
+            {/* Foto de perfil */}
+            <TouchableOpacity onPress={() => setShowProfilePicZoom(true)}>
+              {usuario?.foto_perfil ? (
+                <Image
+                  source={{ uri: usuario.foto_perfil }}
+                  style={styles.avatarGrande}
+                />
+              ) : (
+                <View style={[styles.avatarGrande, { backgroundColor: darkMode ? '#2d3748' : '#cbd5e1', alignItems: 'center', justifyContent: 'center' }]}>
+                  <Text style={{ color: darkMode ? '#fff' : '#1e293b', fontWeight: '700', fontSize: 32 }}>
+                    {(usuario?.nombre || usuario?.carnet || 'U').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Información a la derecha */}
+            <View style={styles.infoCompact}>
+              <Text style={styles.nombreCompact}>{`${usuario?.nombre || ''} ${usuario?.apellido || ''}`.trim() || 'Usuario'}</Text>
+              
+              <View style={styles.infoRowCompact}>
+                <MaterialIcons name="badge" size={14} color={darkMode ? '#aaa' : '#666'} style={{ marginRight: 6 }} />
+                <Text style={styles.infoTextCompact} numberOfLines={1}>
+                  {usuario?.carnet || 'N/A'}
                 </Text>
               </View>
-            )}
-          </TouchableOpacity>
-          <Text style={styles.nombreUsuario}>{usuario?.nombre || 'Usuario'}</Text>
-          <Text style={styles.carnetUsuario}>@{usuario?.carnet || 'usuario'}</Text>
+
+              <View style={styles.infoRowCompact}>
+                <MaterialIcons name="email" size={14} color={darkMode ? '#aaa' : '#666'} style={{ marginRight: 6 }} />
+                <Text style={styles.infoTextCompact} numberOfLines={1}>
+                  {usuario?.correo || 'N/A'}
+                </Text>
+              </View>
+
+              <View style={styles.infoRowCompact}>
+                <MaterialIcons name="school" size={14} color={darkMode ? '#aaa' : '#666'} style={{ marginRight: 6 }} />
+                <Text style={styles.infoTextCompact} numberOfLines={2}>
+                  {usuario?.carrera || 'Sin especificar'}
+                </Text>
+              </View>
+
+              {usuario?.fecha_nacimiento && (
+                <View style={styles.infoRowCompact}>
+                  <MaterialIcons name="cake" size={14} color={darkMode ? '#aaa' : '#666'} style={{ marginRight: 6 }} />
+                  <Text style={styles.infoTextCompact} numberOfLines={1}>
+                    {(() => {
+                      try {
+                        const fecha = new Date(usuario.fecha_nacimiento);
+                        return fecha.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+                      } catch {
+                        return usuario.fecha_nacimiento;
+                      }
+                    })()}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
-      </View>
+
+      {/* Biografía (si existe) */}
+      {usuario?.biografia && (
+        <View style={[styles.bioCard, darkMode && styles.bioCardDark]}>
+          <Text style={[styles.bioTitle, darkMode && styles.bioTitleDark]}>Biografía</Text>
+          <Text style={[styles.bioText, darkMode && styles.bioTextDark]}>{usuario.biografia}</Text>
+        </View>
+      )}
+
+      {/* Gustos e Intereses (si existen) */}
+      {usuario?.gustos && (
+        <View style={[styles.bioCard, darkMode && styles.bioCardDark]}>
+          <Text style={[styles.bioTitle, darkMode && styles.bioTitleDark]}>Gustos e Intereses</Text>
+          <Text style={[styles.bioText, darkMode && styles.bioTextDark]}>{usuario.gustos}</Text>
+        </View>
+      )}
 
       {/* Estadísticas */}
       <View style={styles.estadisticasContainer}>
@@ -845,28 +931,142 @@ const createStyles = (darkMode) => StyleSheet.create({
   },
   headerContainer: {
     backgroundColor: darkMode ? '#1a1a1a' : '#fff',
-  paddingTop: 85,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: darkMode ? '#333' : '#eee',
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  headerDark: {
+    backgroundColor: darkMode ? '#111' : '#fff',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#000',
+    flex: 1,
+  },
+  headerTitleDark: {
+    color: '#fff',
+  },
   backButton: {
-    position: 'absolute',
-    top: 50,
-    left: 15,
-    zIndex: 10,
     padding: 8,
+    borderRadius: 20,
+  },
+  headerMenuButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  headerMenu: {
+    position: 'absolute',
+    top: 40,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    minWidth: 160,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    zIndex: 9999,
+  },
+  headerMenuDark: {
+    backgroundColor: '#1f1f1f',
+    borderColor: '#333',
+  },
+  headerMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  headerMenuText: {
+    marginLeft: 10,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FF3B30',
+  },
+  headerMenuTextDark: {
+    color: '#FF3B30',
   },
   perfilInfo: {
     alignItems: 'center',
   },
+  perfilRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+  },
   avatarGrande: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 15,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#ddd',
+    marginRight: 16,
+  },
+  infoCompact: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  nombreCompact: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: darkMode ? '#fff' : '#000',
+    marginBottom: 8,
+  },
+  infoRowCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  infoTextCompact: {
+    fontSize: 13,
+    color: darkMode ? '#bbb' : '#555',
+    flex: 1,
+  },
+  bioCard: {
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eef1f5',
+  },
+  bioCardDark: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 0,
+  },
+  bioTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 8,
+  },
+  bioTitleDark: {
+    color: '#fff',
+  },
+  bioText: {
+    fontSize: 14,
+    color: '#444',
+    lineHeight: 20,
+  },
+  bioTextDark: {
+    color: '#bbb',
   },
   nombreUsuario: {
     fontSize: 24,
@@ -877,6 +1077,34 @@ const createStyles = (darkMode) => StyleSheet.create({
   carnetUsuario: {
     fontSize: 16,
     color: darkMode ? '#aaa' : '#666',
+  },
+  infoCard: {
+    backgroundColor: darkMode ? '#1a1a1a' : '#fff',
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: darkMode ? 0 : 1,
+    borderColor: '#eef1f5',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  infoLabel: {
+    width: 80,
+    color: darkMode ? '#aaa' : '#666',
+    fontSize: 13,
+    marginRight: 6,
+  },
+  infoValue: {
+    flex: 1,
+    color: darkMode ? '#fff' : '#111',
+    fontSize: 14,
+    fontWeight: '600',
   },
   estadisticasContainer: {
     flexDirection: 'row',
@@ -1095,50 +1323,6 @@ const createStyles = (darkMode) => StyleSheet.create({
   },
 
   overlayMenuTextDark: {
-    color: '#fff',
-  },
-
-  fixedHeader: {
-    position: 'absolute',
-    top: 15,
-    left: 0,
-    right: 0,
-  height: 70,
-    backgroundColor: '#fff',
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 15,
-  paddingBottom: 8,
-    zIndex: 1000,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-
-  fixedHeaderDark: {
-    backgroundColor: '#1a1a1a',
-    borderBottomColor: '#333',
-  },
-
-  fixedBackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  fixedHeaderTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-  },
-
-  fixedHeaderTitleDark: {
     color: '#fff',
   },
 });

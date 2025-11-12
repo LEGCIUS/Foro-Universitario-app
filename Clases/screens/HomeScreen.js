@@ -17,14 +17,6 @@ import BuscadorUsuarios from '../components/BuscadorUsuarios';
 import FeedList from '../publications/FeedList';
 import CreatePublicationModal from '../publications/CreatePublicationModal';
 
-// Esta mierda ya la devolvi a 20 antes de que se joda todo
-// Si vuelve a joderse, gogo.
-// Ayuda: Me estou dando cuenta que el error viene de aqui
-// Asi que lo dejo en 2024
-// Si vuelve a joderse, gogo. Ayuda: Me estou dando cuenta que el error viene de aqui
-// Asi que lo dejo en 2024
-// Si vuelve a joderse, gogo. Ayuda: Me estou dando cuenta que el error viene de aqui     
-
 
 
 // Buffer polyfill no longer needed here after refactor
@@ -55,6 +47,7 @@ export default function HomeScreen({ onLogout, navigation }) {
   const [etiquetasFiltro, setEtiquetasFiltro] = useState([]);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [mostrarBuscador, setMostrarBuscador] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   // Token para forzar cierre de menús (FeedItem) ante acciones globales como buscar/filtrar
   const [feedInteractionToken, setFeedInteractionToken] = useState(0);
   const slideAnimFiltros = useRef(new Animated.Value(600)).current;
@@ -138,6 +131,13 @@ export default function HomeScreen({ onLogout, navigation }) {
       }
     }
   }, [mapPublicationToPost]);
+
+  // Función para pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchPostsFromDB();
+    setRefreshing(false);
+  }, [fetchPostsFromDB]);
 
   // Cargar archivos del bucket al montar el componente
   useEffect(() => {
@@ -319,6 +319,8 @@ export default function HomeScreen({ onLogout, navigation }) {
         posts={publicacionesValidas}
         isScreenFocused={isFocused}
         closeSignal={feedInteractionToken}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
       />
       {/* Botón flotante para publicar */}
       <TouchableOpacity style={[styles.fab, { backgroundColor: '#007AFF', shadowColor: '#007AFF' }]} onPress={() => setShowPublishModal(true)} activeOpacity={0.8}>

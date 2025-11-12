@@ -4,6 +4,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import { supabase } from "../../Supabase/supabaseClient";
+import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useResponsive } from '../hooks/useResponsive';
@@ -72,29 +73,34 @@ export default function LoginScreen({ onLogin }) {
     setRegForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Garantiza que exista una fila en "usuarios" para el carnet logueado
+  // Actualiza la contraseña solo si el usuario ya existe.
+  // Evita violar NOT NULL en columnas como nombre, apellido, correo.
   const ensureUsuarioRow = async (carnet, contrasenaPlano) => {
     try {
       if (!carnet) return;
-      const payload = {
-        carnet: carnet.trim(),
-        // Nota: usamos la contraseña ingresada para cumplir NOT NULL.
-        // No sobreescribimos si ya existe, gracias a ignoreDuplicates.
-        contrasena: String(contrasenaPlano ?? '').trim() || 'temporal',
-      };
-
-      const { error: upsertError } = await supabase
+      const trimmed = carnet.trim();
+      const { data: existing, error: selectError } = await supabase
         .from('usuarios')
-        .upsert(payload, {
-          onConflict: 'carnet',
-          ignoreDuplicates: true, // Si ya existe, no lo toca
-        });
+        .select('carnet')
+        .eq('carnet', trimmed)
+        .single();
 
-      if (upsertError) {
-        console.error('Error al asegurar fila en usuarios:', upsertError);
+      if (selectError || !existing) {
+        // No intentamos crear porque faltarían campos NOT NULL.
+        return;
+      }
+
+      if (contrasenaPlano) {
+        const { error: updateError } = await supabase
+          .from('usuarios')
+          .update({ contrasena: String(contrasenaPlano).trim() })
+          .eq('carnet', trimmed);
+        if (updateError) {
+          console.error('Error actualizando contraseña usuario:', updateError);
+        }
       }
     } catch (e) {
-      console.error('Excepción asegurando usuarios:', e);
+      console.error('Excepción al actualizar usuario existente:', e);
     }
   };
 
@@ -116,9 +122,7 @@ export default function LoginScreen({ onLogin }) {
       });
 
       if (loginError) {
-        console.error('Error de Edge Function, intentando método directo...', loginError);
-        
-        // Fallback: Intentar login directo desde base de datos
+        // Fallback: Intentar login directo desde base de datos sin mostrar errores técnicos al usuario
         const { data: usuario, error: dbError } = await supabase
           .from('usuarios')
           .select('carnet, contrasena')
@@ -126,40 +130,36 @@ export default function LoginScreen({ onLogin }) {
           .single();
 
         if (dbError || !usuario) {
-          throw new Error('Usuario no encontrado');
+          throw new Error('Carnet o contraseña incorrectos');
         }
 
         // Verificar contraseña (directo si es texto plano, o hash si es SHA-256)
         const esHash = usuario.contrasena?.length === 64 && /^[a-f0-9]+$/i.test(usuario.contrasena);
         
         if (esHash) {
-          // Hash SHA-256
-          const encoder = new TextEncoder();
-          const dataBuffer = encoder.encode(form.contrasena);
-          const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
-          const hashArray = Array.from(new Uint8Array(hashBuffer));
-          const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-          
+          // Hash SHA-256 usando expo-crypto para evitar dependencia de crypto.subtle
+          const hashHex = await Crypto.digestStringAsync(
+            Crypto.CryptoDigestAlgorithm.SHA256,
+            form.contrasena
+          );
           if (hashHex !== usuario.contrasena) {
-            throw new Error('Contraseña incorrecta');
+            throw new Error('Carnet o contraseña incorrectos');
           }
         } else {
           // Texto plano (usuarios antiguos)
           if (form.contrasena !== usuario.contrasena) {
-            throw new Error('Contraseña incorrecta');
+            throw new Error('Carnet o contraseña incorrectos');
           }
         }
 
         await AsyncStorage.setItem('carnet', form.carnet);
-        // Intentar crear la fila en usuarios si no existe (no sobrescribe si existe)
         await ensureUsuarioRow(form.carnet, form.contrasena);
         onLogin();
         return;
       }
 
       if (!data?.success) {
-        console.error('Login retornó error:', data);
-        throw new Error(data?.error || 'Credenciales incorrectas');
+        throw new Error('Carnet o contraseña incorrectos');
       }
 
   await AsyncStorage.setItem('carnet', form.carnet);
@@ -167,8 +167,14 @@ export default function LoginScreen({ onLogin }) {
   await ensureUsuarioRow(form.carnet, form.contrasena);
       onLogin();
     } catch (err) {
-      console.error('Error en login:', err);
-      setError(err.message || "Ocurrió un error al iniciar sesión.");
+      // Mapear errores a un mensaje amigable, preservando validaciones requeridas
+      const rawMsg = err?.message || '';
+      const isRequired = /obligatori/i.test(rawMsg);
+      const isAuthRelated = /contraseñ|usuario|carnet|credencial/i.test(rawMsg);
+      setError(isRequired
+        ? rawMsg
+        : (isAuthRelated ? 'Carnet o contraseña incorrectos' : 'Ocurrió un error al iniciar sesión.')
+      );
     } finally {
       setLoading(false);
     }
