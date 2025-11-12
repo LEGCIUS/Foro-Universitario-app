@@ -27,7 +27,7 @@ const secciones = [
   { nombre: 'Videos', icono: 'ondemand-video', color: '#FFB86C' },
   { nombre: 'Tutoriales', icono: 'play-circle-outline', color: '#50fa7b' },
   { nombre: 'Eventos', icono: 'class', color: '#FF5555' },
-  { nombre: 'Recursos', icono: 'menu-book', color: '#8be9fd' },
+  { nombre: 'Biblioteca', icono: 'menu-book', color: '#8be9fd' },
 ];
 
 import { useNavigation } from '@react-navigation/native';

@@ -22,6 +22,7 @@ import CursosScreen from './Comunidad/CursosScreen';
 import VideosScreen from './Comunidad/VideosScreen';
 import TutorialesScreen from './Comunidad/TutorialesScreen';
 import ClasesScreen from './Comunidad/ClasesScreen';
+import EventosScreen from './screens/EventosScreen';
 import BibliotecaScreen from './Comunidad/BibliotecaScreen';
 import CrearCurso from './Comunidad/CrearCurso';
 
@@ -126,6 +127,7 @@ export default function App() {
             <Stack.Screen name="Cursos" component={CursosScreen} />
             <Stack.Screen name="Videos" component={VideosScreen} />
             <Stack.Screen name="Tutoriales" component={TutorialesScreen} />
+            <Stack.Screen name="Eventos" component={EventosScreen} />
             <Stack.Screen name="Clases" component={ClasesScreen} />
             <Stack.Screen name="Biblioteca" component={BibliotecaScreen} />
             <Stack.Screen name="CrearCurso" component={CrearCurso} options={{ title: 'Crear Curso' }} />
