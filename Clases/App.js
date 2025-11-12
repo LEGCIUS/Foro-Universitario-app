@@ -14,6 +14,7 @@ import SettingScreen from './screens/SettingScreen';
 import ChangePasswordScreen from './screens/ChangePasswordScreen';
 import ProductosList from './ventas/ProductosList';
 import ProductoForm from './ventas/ProductoForm';
+import ProductoDetalle from './ventas/ProductoDetalle';
 import PublicationsViewer from './publications/PublicationsViewer';
 import { useTheme } from './contexts/ThemeContext'; 
 import AdminScreen from './screens/AdminScreen';
@@ -169,6 +170,20 @@ export default function App() {
             component={AdminScreen}
             options={{ headerShown: false }}
           />
+          <Stack.Screen
+            name="ProductoDetalle"
+            options={{ headerShown: false }}
+          >
+            {({ route, navigation }) => {
+              const producto = route.params?.producto;
+              return (
+                <ProductoDetalle 
+                  producto={producto} 
+                  onVolver={() => navigation.goBack()}
+                />
+              );
+            }}
+          </Stack.Screen>
         </Stack.Navigator>
       )}
     </NavigationContainer>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal, Dimensions } from 'react-native';
+import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal, Dimensions, FlatList, TouchableWithoutFeedback, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -210,6 +210,9 @@ export default function PerfilUsuario({ navigation }) {
           <Tab.Screen name="Publicaciones">
             {() => <PublicacionesTab usuario={usuario} darkMode={darkMode} />}
           </Tab.Screen>
+          <Tab.Screen name="Ventas">
+            {() => <VentasTab usuario={usuario} darkMode={darkMode} />}
+          </Tab.Screen>
         </Tab.Navigator>
       </View>
     </LinearGradient>
@@ -222,18 +225,30 @@ function InfoTab({ usuario, darkMode }) {
   
   const formatearFecha = (fecha) => {
     if (!fecha) return 'No especificada';
-    const date = new Date(fecha);
-    const opciones = { year: 'numeric', month: 'long', day: 'numeric' };
-    return date.toLocaleDateString('es-ES', opciones);
+    
+    // Parsear la fecha directamente sin zona horaria
+    const fechaSolo = fecha.split('T')[0]; // Por si viene con timestamp
+    const [anio, mes, dia] = fechaSolo.split('-').map(Number);
+    
+    const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 
+                   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    
+    return `${dia} de ${meses[mes - 1]} de ${anio}`;
   };
 
   const calcularEdad = (fechaNac) => {
     if (!fechaNac) return null;
+    
+    // Parsear la fecha directamente sin zona horaria
+    const fechaSolo = fechaNac.split('T')[0];
+    const [anioNac, mesNac, diaNac] = fechaSolo.split('-').map(Number);
+    
     const hoy = new Date();
-    const nacimiento = new Date(fechaNac);
-    let edad = hoy.getFullYear() - nacimiento.getFullYear();
-    const mes = hoy.getMonth() - nacimiento.getMonth();
-    if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
+    let edad = hoy.getFullYear() - anioNac;
+    const mesActual = hoy.getMonth() + 1; // getMonth() devuelve 0-11
+    const diaActual = hoy.getDate();
+    
+    if (mesActual < mesNac || (mesActual === mesNac && diaActual < diaNac)) {
       edad--;
     }
     return edad;
@@ -878,6 +893,584 @@ function PublicacionesTab({ usuario, darkMode }) {
   );
 }
 
+// Tab de Ventas
+function VentasTab({ usuario, darkMode }) {
+  const [productos, setProductos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [imagenIndex, setImagenIndex] = useState(0);
+  const [viewerWidth, setViewerWidth] = useState(0);
+  const [confirmDeleteVisible, setConfirmDeleteVisible] = useState(false);
+  const [productoAEliminar, setProductoAEliminar] = useState(null);
+  const flatListRef = React.useRef(null);
+  const navigation = useNavigation();
+
+  // Formatear hora_inicio_venta ("HH:MM") a hora local amigable
+  const formatHoraVenta = (horaStr) => {
+    if (!horaStr) return null;
+    try {
+      const [h, m] = String(horaStr).split(':');
+      const d = new Date();
+      d.setHours(parseInt(h || '0', 10), parseInt(m || '0', 10), 0, 0);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return String(horaStr);
+    }
+  };
+
+  const fetchProductos = async () => {
+    setLoading(true);
+    if (!usuario?.carnet) {
+      setProductos([]);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('productos')
+        .select('*')
+        .eq('usuario_carnet', usuario.carnet)
+        .order('fecha_publicacion', { ascending: false });
+
+      console.log('🛒 Productos encontrados:', data?.length || 0);
+      
+      if (!error && data) {
+        setProductos(data);
+      } else if (error) {
+        console.error('Error al cargar productos:', error);
+      }
+    } catch (err) {
+      console.error('Error al cargar productos:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteProducto = (producto) => {
+    setProductoAEliminar(producto);
+    setConfirmDeleteVisible(true);
+  };
+
+  const confirmDeleteProducto = async () => {
+    if (!productoAEliminar) return;
+    
+    const { error } = await supabase
+      .from('productos')
+      .delete()
+      .eq('id', productoAEliminar.id);
+    
+    if (!error) {
+      setConfirmDeleteVisible(false);
+      setProductoAEliminar(null);
+      fetchProductos();
+    } else {
+      Alert.alert('Error', 'No se pudo eliminar el producto');
+    }
+  };
+
+  const cancelDelete = () => {
+    setConfirmDeleteVisible(false);
+    setProductoAEliminar(null);
+  };
+
+  // Recargar productos cuando la pantalla gana foco
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchProductos();
+    }, [usuario])
+  );
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: darkMode ? '#121212' : '#f5f7fb' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+
+  if (productos.length === 0) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: darkMode ? '#121212' : '#f5f7fb' }}>
+        <MaterialIcons name="shopping-cart" size={64} color={darkMode ? '#555' : '#ccc'} />
+        <Text style={{ fontSize: 16, color: darkMode ? '#999' : '#666', marginTop: 16, textAlign: 'center' }}>
+          No tienes productos a la venta
+        </Text>
+        <TouchableOpacity
+          style={{
+            marginTop: 20,
+            backgroundColor: '#007AFF',
+            paddingVertical: 12,
+            paddingHorizontal: 24,
+            borderRadius: 12,
+          }}
+          onPress={() => navigation.navigate('PublicarProducto')}
+        >
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Publicar Producto</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1, backgroundColor: darkMode ? '#121212' : '#f5f7fb' }} contentContainerStyle={{ padding: 12 }}>
+        {/* Botón para publicar producto */}
+        <TouchableOpacity
+          style={[
+            {
+              backgroundColor: darkMode ? "#007AFF" : "#222",
+              padding: 10,
+              borderRadius: 8,
+              marginBottom: 16,
+              alignSelf: 'flex-start'
+            },
+            darkMode && { backgroundColor: '#007AFF' }
+          ]}
+          onPress={() => navigation.navigate('PublicarProducto')}
+        >
+          <Text style={{ color: "#fff", fontWeight: "bold" }}>Publicar producto</Text>
+        </TouchableOpacity>
+
+        {productos.map((producto) => (
+        <TouchableOpacity
+          key={producto.id}
+          style={{
+            backgroundColor: darkMode ? '#1e1e1e' : '#fff',
+            borderRadius: 12,
+            marginBottom: 12,
+            overflow: 'hidden',
+            elevation: 2,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 4,
+          }}
+          onPress={() => {
+            setProductoSeleccionado(producto);
+            setImagenIndex(0);
+            setModalVisible(true);
+          }}
+          activeOpacity={0.8}
+        >
+          {/* Imagen del producto */}
+          <View style={{ position: 'relative' }}>
+            {producto.foto_url && Array.isArray(producto.foto_url) && producto.foto_url.length > 0 ? (
+              <Image
+                source={{ uri: producto.foto_url[0] }}
+                style={{ width: '100%', height: 200, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={{ width: '100%', height: 200, backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0', justifyContent: 'center', alignItems: 'center', borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                <MaterialIcons name="image" size={64} color={darkMode ? '#555' : '#ccc'} />
+              </View>
+            )}
+            {/* Indicador de múltiples imágenes */}
+            {producto.foto_url && Array.isArray(producto.foto_url) && producto.foto_url.length > 1 && (
+              <View style={{ 
+                position: 'absolute', 
+                top: 8, 
+                right: 8, 
+                backgroundColor: 'rgba(0, 0, 0, 0.7)', 
+                paddingHorizontal: 8, 
+                paddingVertical: 4, 
+                borderRadius: 12,
+                flexDirection: 'row',
+                alignItems: 'center'
+              }}>
+                <MaterialIcons name="photo-library" size={14} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 12, marginLeft: 4, fontWeight: '600' }}>
+                  {producto.foto_url.length}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Información del producto */}
+          <View style={{ padding: 12 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 8 }} numberOfLines={2}>
+              {producto.nombre}
+            </Text>
+
+            <View style={{ 
+              backgroundColor: darkMode ? '#243244' : '#e6f0ff', 
+              borderColor: darkMode ? '#314463' : '#dbeafe',
+              borderWidth: 1,
+              paddingHorizontal: 12, 
+              paddingVertical: 8, 
+              borderRadius: 8,
+              alignSelf: 'flex-start',
+              marginBottom: 12
+            }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#7fb0ff' : '#2563EB' }}>
+                Precio: ₡{producto.precio}
+              </Text>
+            </View>
+
+            <Text style={{ fontSize: 14, color: darkMode ? '#aaa' : '#666', marginBottom: 12, lineHeight: 20 }} numberOfLines={3}>
+              {producto.descripcion}
+            </Text>
+
+            {/* Información adicional */}
+            <View style={{ borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#eee', paddingTop: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <MaterialIcons name="person" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                  <Text style={{ fontWeight: '600' }}>Vendedor:</Text> {producto.nombre_vendedor}
+                </Text>
+              </View>
+              
+              {producto.telefono && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialIcons name="phone" size={16} color="#25D366" />
+                  <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                    {producto.telefono}
+                  </Text>
+                </View>
+              )}
+
+              {producto.categoria && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialIcons name="category" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                  <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                    <Text style={{ fontWeight: '600' }}>Categoría:</Text> {producto.categoria}
+                  </Text>
+                </View>
+              )}
+
+              {producto.hora_inicio_venta && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialIcons name="schedule" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                  <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                    <Text style={{ fontWeight: '600' }}>Inicio de venta: </Text>
+                    {formatHoraVenta(producto.hora_inicio_venta)}
+                  </Text>
+                </View>
+              )}
+
+              {producto.fecha_publicacion && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                  <MaterialIcons name="event" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                  <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                    Publicado: {new Date(producto.fecha_publicacion).toLocaleDateString('es-ES')}
+                  </Text>
+                </View>
+              )}
+
+              {/* Botones de acciones */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: darkMode ? '#334155' : '#e6f0ff',
+                    paddingVertical: 10,
+                    borderRadius: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    navigation.navigate('PublicarProducto', {
+                      producto: producto,
+                      modo: 'editar',
+                      onProductoEditado: () => {
+                        fetchProductos();
+                      }
+                    });
+                  }}
+                >
+                  <MaterialIcons name="edit" size={18} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                  <Text style={{ color: darkMode ? '#7fb0ff' : '#2563EB', fontWeight: '600', marginLeft: 6 }}>
+                    Editar
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    backgroundColor: darkMode ? '#7f1d1d' : '#fee2e2',
+                    paddingVertical: 10,
+                    borderRadius: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleDeleteProducto(producto);
+                  }}
+                >
+                  <MaterialIcons name="delete" size={18} color={darkMode ? '#fca5a5' : '#dc2626'} />
+                  <Text style={{ color: darkMode ? '#fca5a5' : '#dc2626', fontWeight: '600', marginLeft: 6 }}>
+                    Eliminar
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      ))}
+
+      {/* Modal con el detalle del producto */}
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          setModalVisible(false);
+          setProductoSeleccionado(null);
+          setImagenIndex(0);
+        }}
+      >
+        <TouchableWithoutFeedback onPress={() => {
+          setModalVisible(false);
+          setProductoSeleccionado(null);
+          setImagenIndex(0);
+        }}>
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={{
+                width: '90%',
+                maxWidth: 500,
+                backgroundColor: darkMode ? '#1f2937' : '#fff',
+                borderRadius: 20,
+                padding: 20,
+                maxHeight: '90%',
+              }}>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {productoSeleccionado && (
+                    <>
+                      <View style={{ alignItems: 'center', marginBottom: 12, position: 'relative', width: '100%' }}>
+                        {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
+                          <>
+                            <View style={{ width: Dimensions.get('window').width * 0.9, maxWidth: 500, alignSelf: 'center' }}>
+                              <FlatList
+                                ref={flatListRef}
+                                data={productoSeleccionado.foto_url}
+                                horizontal
+                                pagingEnabled
+                                keyExtractor={(uri, idx) => uri + idx}
+                                showsHorizontalScrollIndicator={false}
+                                snapToInterval={Dimensions.get('window').width * 0.9}
+                                decelerationRate="fast"
+                                onScroll={(e) => {
+                                  const x = e.nativeEvent.contentOffset.x;
+                                  const w = e.nativeEvent.layoutMeasurement.width;
+                                  const idx = Math.round(x / w);
+                                  if (idx !== imagenIndex) {
+                                    setImagenIndex(idx);
+                                  }
+                                }}
+                                scrollEventThrottle={16}
+                                renderItem={({ item, index }) => (
+                                  <View style={{ width: Dimensions.get('window').width * 0.9, maxWidth: 500 }}>
+                                    <Image
+                                      source={{ uri: item }}
+                                      style={{ width: '100%', height: 230, borderRadius: 16 }}
+                                      resizeMode="cover"
+                                    />
+                                  </View>
+                                )}
+                              />
+                              {/* Flechas de navegación */}
+                              {productoSeleccionado.foto_url.length > 1 && (
+                                <>
+                                  <TouchableOpacity
+                                    style={[
+                                      styles.carouselArrow,
+                                      styles.carouselArrowLeft,
+                                      { opacity: imagenIndex === 0 ? 0.3 : 1 }
+                                    ]}
+                                    onPress={() => {
+                                      if (imagenIndex > 0) {
+                                        setImagenIndex(imagenIndex - 1);
+                                        flatListRef.current?.scrollToIndex({ index: imagenIndex - 1, animated: true });
+                                      }
+                                    }}
+                                    activeOpacity={0.7}
+                                    disabled={imagenIndex === 0}
+                                  >
+                                    <MaterialIcons name="chevron-left" size={36} color="#fff" style={{ textShadowColor: '#000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, elevation: 4 }} />
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={[
+                                      styles.carouselArrow,
+                                      styles.carouselArrowRight,
+                                      { opacity: imagenIndex === productoSeleccionado.foto_url.length - 1 ? 0.3 : 1 }
+                                    ]}
+                                    onPress={() => {
+                                      if (imagenIndex < productoSeleccionado.foto_url.length - 1) {
+                                        setImagenIndex(imagenIndex + 1);
+                                        flatListRef.current?.scrollToIndex({ index: imagenIndex + 1, animated: true });
+                                      }
+                                    }}
+                                    activeOpacity={0.7}
+                                    disabled={imagenIndex === productoSeleccionado.foto_url.length - 1}
+                                  >
+                                    <MaterialIcons name="chevron-right" size={36} color="#fff" style={{ textShadowColor: '#000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, elevation: 4 }} />
+                                  </TouchableOpacity>
+                                </>
+                              )}
+                            </View>
+                            <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8 }}>
+                              {productoSeleccionado.foto_url.map((_, idx) => (
+                                <View
+                                  key={idx}
+                                  style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: 4,
+                                    backgroundColor: idx === imagenIndex ? '#007AFF' : '#ccc',
+                                    marginHorizontal: 4,
+                                  }}
+                                />
+                              ))}
+                            </View>
+                            <Text style={{ marginTop: 6, color: darkMode ? '#94a3b8' : '#64748b' }}>
+                              {imagenIndex + 1} / {productoSeleccionado.foto_url?.length || 1}
+                            </Text>
+                          </>
+                        ) : (
+                          <View style={{ width: '100%', height: 230, backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
+                            <MaterialIcons name="image" size={48} color={darkMode ? '#555' : '#ccc'} />
+                          </View>
+                        )}
+                      </View>
+                      <Text style={{ fontSize: 20, fontWeight: '700', color: darkMode ? '#fff' : '#0f172a', marginBottom: 8 }}>
+                        {productoSeleccionado.nombre}
+                      </Text>
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: '#007AFF', marginBottom: 12 }}>
+                        Precio: ₡{productoSeleccionado.precio}
+                      </Text>
+                      <Text style={{ fontSize: 15, color: darkMode ? '#cbd5e1' : '#334155', marginBottom: 12 }}>
+                        {productoSeleccionado.descripcion}
+                      </Text>
+                      <Text style={{ fontSize: 14, color: darkMode ? '#cbd5e1' : '#475569', marginBottom: 16 }}>
+                        Vendedor: <Text style={{ color: darkMode ? '#fff' : '#0e141b', fontWeight: 'bold' }}>{productoSeleccionado.nombre_vendedor}</Text>
+                      </Text>
+                      {productoSeleccionado?.hora_inicio_venta && (
+                        <Text style={{ fontSize: 14, color: darkMode ? '#cbd5e1' : '#475569', marginBottom: 16 }}>
+                          <Text style={{ fontWeight: '700', color: darkMode ? '#7fb0ff' : '#2563EB' }}>Inicio de venta: </Text>
+                          {formatHoraVenta(productoSeleccionado.hora_inicio_venta)}
+                        </Text>
+                      )}
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: '#25D366',
+                          paddingVertical: 14,
+                          borderRadius: 12,
+                          alignItems: 'center',
+                          marginBottom: 10,
+                        }}
+                        onPress={() => {
+                          const num = (productoSeleccionado?.telefono || '').toString().replace(/\D/g, '');
+                          if (!num) return Alert.alert('Teléfono no disponible');
+                          const url = `https://wa.me/${num}?text=${encodeURIComponent(productoSeleccionado?.mensaje_whatsapp || 'Hola, estoy interesado.')}`;
+                          Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Contactar por WhatsApp</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: '#007AFF',
+                          paddingVertical: 14,
+                          borderRadius: 12,
+                          alignItems: 'center',
+                        }}
+                        onPress={() => {
+                          setModalVisible(false);
+                          setProductoSeleccionado(null);
+                          setImagenIndex(0);
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Cerrar</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Modal de confirmación para eliminar producto */}
+      <Modal 
+        transparent 
+        visible={confirmDeleteVisible} 
+        animationType="fade" 
+        onRequestClose={cancelDelete}
+      >
+        <TouchableWithoutFeedback onPress={cancelDelete}>
+          <View style={styles.confirmModalContainer}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.confirmModalContent, { backgroundColor: darkMode ? '#1a1a1a' : '#fff' }]}>
+                {/* Círculo de fondo para el icono */}
+                <View style={[styles.iconCircle, { backgroundColor: darkMode ? '#3d1f1f' : '#fee2e2' }]}>
+                  <MaterialIcons name="delete-outline" size={56} color={darkMode ? '#fca5a5' : '#dc2626'} />
+                </View>
+                
+                <Text style={[styles.confirmTitle, { color: darkMode ? '#fff' : '#1f2937' }]}>
+                  ¿Eliminar este producto?
+                </Text>
+                
+                <Text style={[styles.confirmText, { color: darkMode ? '#9ca3af' : '#6b7280' }]}>
+                  Esta acción es permanente y no se puede revertir. El producto será eliminado de forma definitiva.
+                </Text>
+
+                {productoAEliminar && (
+                  <View style={[styles.productPreview, { backgroundColor: darkMode ? '#262626' : '#f9fafb', borderColor: darkMode ? '#404040' : '#e5e7eb' }]}>
+                    <Text style={[styles.productPreviewName, { color: darkMode ? '#e5e7eb' : '#374151' }]} numberOfLines={1}>
+                      {productoAEliminar.nombre}
+                    </Text>
+                    <Text style={[styles.productPreviewPrice, { color: darkMode ? '#7fb0ff' : '#2563EB' }]}>
+                      ₡{productoAEliminar.precio}
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={styles.confirmButtonsRow}>
+                  <TouchableOpacity
+                    style={[styles.confirmButton, styles.confirmCancelButton, { backgroundColor: darkMode ? '#374151' : '#f3f4f6', borderColor: darkMode ? '#4b5563' : '#d1d5db' }]}
+                    onPress={cancelDelete}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="close" size={20} color={darkMode ? '#d1d5db' : '#6b7280'} style={{ marginRight: 6 }} />
+                    <Text style={[styles.confirmButtonText, { color: darkMode ? '#e5e7eb' : '#374151', fontWeight: '600' }]}>
+                      Cancelar
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.confirmButton, styles.confirmDeleteButton, { backgroundColor: '#ef4444' }]}
+                    onPress={confirmDeleteProducto}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name="delete-forever" size={20} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={[styles.confirmButtonText, { color: '#fff', fontWeight: '700' }]}>
+                      Eliminar
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+      </ScrollView>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
 
@@ -1247,22 +1840,30 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: 20,
   },
 
   confirmModalContent: {
     width: '100%',
-    maxWidth: 420,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+    maxWidth: 400,
+    borderRadius: 24,
+    padding: 28,
     alignItems: 'center',
-    elevation: 8,
+    elevation: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+  },
+
+  iconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
   },
 
   confirmModalContentDark: {
@@ -1270,10 +1871,11 @@ const styles = StyleSheet.create({
   },
 
   confirmTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
-    marginBottom: 8,
-    color: '#222',
+    marginBottom: 12,
+    textAlign: 'center',
+    letterSpacing: -0.5,
   },
 
   confirmTitleDark: {
@@ -1281,40 +1883,67 @@ const styles = StyleSheet.create({
   },
 
   confirmText: {
-    fontSize: 14,
-    color: '#444',
+    fontSize: 15,
     textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
+    marginBottom: 20,
+    lineHeight: 22,
+    paddingHorizontal: 8,
   },
 
   confirmTextDark: {
     color: '#ddd',
   },
+
+  productPreview: {
+    width: '100%',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+
+  productPreviewName: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+
+  productPreviewPrice: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+
   confirmButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
+    gap: 12,
   },
 
   confirmButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     alignItems: 'center',
-    marginHorizontal: 6,
+    justifyContent: 'center',
+    flexDirection: 'row',
   },
 
   confirmCancelButton: {
-    backgroundColor: '#EEE',
+    borderWidth: 1.5,
   },
 
   confirmDeleteButton: {
-    backgroundColor: '#FF3B30',
+    elevation: 2,
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
 
   confirmButtonText: {
-    color: '#111',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -1374,5 +2003,29 @@ const styles = StyleSheet.create({
   actionBtnRowProfile: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   inlineCountProfile: { fontSize: 13, color: '#444', marginLeft: 6, fontWeight: '500' },
   inlineCountProfileDark: { color: '#ddd' },
+  // Carousel arrow styles
+  carouselArrow: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -24,
+    zIndex: 10,
+    backgroundColor: 'rgba(30,41,59,0.75)',
+    borderRadius: 24,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  carouselArrowLeft: {
+    left: 8,
+  },
+  carouselArrowRight: {
+    right: 8,
+  },
 });
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal, TouchableWithoutFeedback, TextInput } from 'react-native';
+import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal, TouchableWithoutFeedback, TextInput, Dimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -7,7 +7,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu }) {
+function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu, setDeleteVisible, setDeleteTarget, usuariosPerfil }) {
   const { darkMode } = useTheme();
 
   const safePhone = (item?.telefono || '').toString().replace(/[^\d]/g, '');
@@ -29,63 +29,117 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
         onVerDetalle(item);
       }}
     >
-      <View style={[styles.imageContainer, { backgroundColor: darkMode ? '#262626' : '#f3f7ff' }]}>
+      {/* Imagen superior full-width y datos de vendedor */}
+      <View style={{ position: 'relative' }}>
         {Array.isArray(item?.foto_url) && item.foto_url.length > 0 ? (
-          <Image source={{ uri: item.foto_url[0] }} style={styles.image} />
+          <Image source={{ uri: item.foto_url[0] }} style={{ width: '100%', height: 200, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} resizeMode="cover" />
         ) : (
-          <View style={[styles.imagePlaceholder, { backgroundColor: darkMode ? '#2f2f2f' : '#eaf2ff' }]}>
-            <MaterialIcons name="image" size={28} color={darkMode ? '#666' : '#9aa5b1'} />
+          <View style={{ width: '100%', height: 200, backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0', justifyContent: 'center', alignItems: 'center', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
+            <MaterialIcons name="image" size={48} color={darkMode ? '#555' : '#ccc'} />
           </View>
         )}
-          {Array.isArray(item?.foto_url) && item.foto_url.length > 1 && (
-            <View style={styles.dotsWrap}>
-              {Array.from({ length: Math.min(item.foto_url.length, 5) }).map((_, idx) => (
-                <View key={idx} style={styles.dot} />
-              ))}
-              {item.foto_url.length > 5 && (
-                <Text style={styles.dotPlus}>+{item.foto_url.length - 5}</Text>
-              )}
-            </View>
-          )}
-        {/* Precio movido al chip de la derecha en la sección de info */}
-        {/* Categoría retirada del overlay en la imagen a pedido del usuario */}
+        {Array.isArray(item?.foto_url) && item.foto_url.length > 1 && (
+          <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center' }}>
+            <MaterialIcons name="photo-library" size={14} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 12, marginLeft: 4, fontWeight: '600' }}>{item.foto_url.length}</Text>
+          </View>
+        )}
+        {/* Foto de perfil y nombre real del vendedor */}
+        {usuariosPerfil && item.usuario_carnet && usuariosPerfil[item.usuario_carnet] && (
+          <View style={{ position: 'absolute', left: 12, bottom: 12, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 20, paddingVertical: 4, paddingHorizontal: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.10, shadowRadius: 4, elevation: 2 }}>
+            <TouchableOpacity
+                onPress={async () => {
+                  let miCarnet = (userCarnet || '').toString().trim();
+                  if (!miCarnet) {
+                    try {
+                      miCarnet = (await AsyncStorage.getItem('carnet'))?.toString().trim() || '';
+                    } catch {}
+                  }
+                  const carnetVendedor = (item.usuario_carnet || '').toString().trim();
+                  if (miCarnet && carnetVendedor && miCarnet === carnetVendedor) {
+                    // Navegar al perfil propio como en CommentsModal/PublicationsViewer
+                    navigation.navigate('MainTabs', { screen: 'Perfil' });
+                    // Si tu app no usa tabs, usa: navigation.navigate('PerfilUsuario');
+                  } else {
+                    navigation.navigate('ViewUserProfile', { userId: carnetVendedor });
+                  }
+                }}
+              activeOpacity={0.7}
+            >
+              <Image
+                source={usuariosPerfil[item.usuario_carnet].foto_perfil ? { uri: usuariosPerfil[item.usuario_carnet].foto_perfil } : require('../../assets/avatar1.png')}
+                style={{ width: 32, height: 32, borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#f1f5f9' }}
+                resizeMode="cover"
+              />
+            </TouchableOpacity>
+            <Text style={{ fontWeight: '700', color: '#222', fontSize: 14, maxWidth: 120 }} numberOfLines={1}>
+              {usuariosPerfil[item.usuario_carnet].nombre} {usuariosPerfil[item.usuario_carnet].apellido}
+            </Text>
+          </View>
+        )}
       </View>
 
-      <View style={styles.info}>
-        <View style={styles.rowBetween}>
-          <Text style={[styles.nombre, { color: darkMode ? '#fff' : '#0f172a' }]} numberOfLines={1}>{item?.nombre}</Text>
-          <View style={[styles.priceChip, { backgroundColor: darkMode ? '#243244' : '#e6f0ff', borderColor: darkMode ? '#314463' : '#dbeafe' }]}>
-            <Text style={[styles.priceChipText, { color: darkMode ? '#7fb0ff' : '#2563EB' }]}>₡{item?.precio}</Text>
-          </View>
-        </View>
-        <Text style={[styles.vendedor, { color: darkMode ? '#a0a0c3' : '#4e7397' }]}>
-          <Text style={{ color: darkMode ? '#cbd5e1' : '#0f172a', fontWeight: '700' }}>Vendedor: </Text>
-          <Text style={[{ fontWeight: '700' }, darkMode && { color: '#fff' }]}>{item?.nombre_vendedor}</Text>
+      {/* Contenido */}
+      <View style={{ padding: 12 }}>
+        <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 8 }} numberOfLines={2}>
+          {item?.nombre}
         </Text>
 
-        {item?.hora_inicio_venta && (
-          <Text style={[styles.horaVenta, { color: darkMode ? '#cbd5e1' : '#0f172a' }]}>
-            <Text style={{ color: '#4e7397', fontWeight: '700' }}>Inicio de venta: </Text>
-            <Text style={{ fontWeight: '700' }}>{horaMostrar}</Text>
-          </Text>
-        )}
+        <View style={{ backgroundColor: darkMode ? '#243244' : '#e6f0ff', borderColor: darkMode ? '#314463' : '#dbeafe', borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start', marginBottom: 12 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#7fb0ff' : '#2563EB' }}>Precio: ₡{item?.precio}</Text>
+        </View>
 
-        <TouchableOpacity
-          style={styles.whatsappRow}
-          onPress={() => {
-            if (!whatsappUrl) return Alert.alert('Teléfono no disponible', 'El vendedor no proporcionó un número válido.');
-            Linking.openURL(whatsappUrl).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
-          }}
-          activeOpacity={0.85}
-        >
-          <MaterialIcons name="chat" size={18} color="#25D366" />
-          <Text style={[styles.telefonoLink, darkMode && styles.telefonoLinkDark]}>WhatsApp: {item?.telefono || '—'}</Text>
-        </TouchableOpacity>
+        <Text style={{ fontSize: 14, color: darkMode ? '#aaa' : '#666', marginBottom: 12, lineHeight: 20 }} numberOfLines={3}>
+          {item?.descripcion}
+        </Text>
+
+        <View style={{ borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#eee', paddingTop: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <MaterialIcons name="person" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+            <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+              <Text style={{ fontWeight: '600' }}>Vendedor:</Text> {item?.nombre_vendedor}
+            </Text>
+          </View>
+
+          {item?.telefono && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <MaterialIcons name="phone" size={16} color="#25D366" />
+              <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>{item?.telefono}</Text>
+            </View>
+          )}
+
+          {item?.categoria && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <MaterialIcons name="category" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+              <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                <Text style={{ fontWeight: '600' }}>Categoría:</Text> {item?.categoria}
+              </Text>
+            </View>
+          )}
+
+          {horaMostrar && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <MaterialIcons name="schedule" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+              <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                <Text style={{ fontWeight: '600' }}>Inicio de venta: </Text>{horaMostrar}
+              </Text>
+            </View>
+          )}
+
+          {item?.fecha_publicacion && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <MaterialIcons name="event" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+              <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                Publicado: {new Date(item.fecha_publicacion).toLocaleDateString('es-ES')}
+              </Text>
+            </View>
+          )}
+        </View>
 
         {userCarnet === item?.usuario_carnet && (
-          <View style={styles.ownerActions}>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
             <TouchableOpacity
-              style={[styles.ownerBtn, { backgroundColor: darkMode ? '#334155' : '#e6f0ff' }]}
+              style={{ flex: 1, backgroundColor: darkMode ? '#334155' : '#e6f0ff', paddingVertical: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
               onPress={() => {
                 if (setLoading) setLoading(true);
                 navigation.navigate('PublicarProducto', {
@@ -99,27 +153,21 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
               }}
               activeOpacity={0.8}
             >
-              <MaterialIcons name="edit" size={16} color={darkMode ? '#cbd5e1' : '#2563EB'} />
-              <Text style={[styles.ownerBtnText, { color: darkMode ? '#cbd5e1' : '#2563EB' }]}>Editar</Text>
+              <MaterialIcons name="edit" size={18} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+              <Text style={{ color: darkMode ? '#7fb0ff' : '#2563EB', fontWeight: '600', marginLeft: 6 }}>Editar</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.ownerBtn, { backgroundColor: darkMode ? '#3b1f1f' : '#ffecec' }]}
+              style={{ flex: 1, backgroundColor: darkMode ? '#7f1d1d' : '#fee2e2', paddingVertical: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
               onPress={() => {
-                Alert.alert('Eliminar', '¿Seguro que deseas eliminar este producto?', [
-                  { text: 'Cancelar', style: 'cancel' },
-                  { text: 'Eliminar', style: 'destructive', onPress: async () => {
-                    if (setLoading) setLoading(true);
-                    await supabase.from('productos').delete().eq('id', item.id);
-                    if (handleProductoPublicado) handleProductoPublicado();
-                    if (setLoading) setLoading(false);
-                  }}
-                ]);
+                if (closeMenu) closeMenu();
+                setDeleteTarget && setDeleteTarget(item);
+                setDeleteVisible && setDeleteVisible(true);
               }}
               activeOpacity={0.8}
             >
-              <MaterialIcons name="delete-forever" size={16} color="#EF4444" />
-              <Text style={[styles.ownerBtnText, { color: '#EF4444' }]}>Eliminar</Text>
+              <MaterialIcons name="delete" size={18} color={darkMode ? '#fca5a5' : '#dc2626'} />
+              <Text style={{ color: darkMode ? '#fca5a5' : '#dc2626', fontWeight: '600', marginLeft: 6 }}>Eliminar</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -129,6 +177,7 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
 }
 
 const MemoProductoCard = React.memo(ProductoCard);
+
 
 export default function ProductosList(props) {
   const { onVerDetalle, navigation } = props;
@@ -145,11 +194,31 @@ export default function ProductosList(props) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [viewerWidth, setViewerWidth] = useState(0);
   const flatListRef = React.useRef(null);
-
   // Estado para reportes (similar a FeedItem)
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportReason, setReportReason] = useState('Contenido inapropiado');
   const [reportText, setReportText] = useState('');
+  // Estado para confirmación de eliminación
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [productoAEliminar, setProductoAEliminar] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  // Estado para perfiles de usuario
+  const [usuariosPerfil, setUsuariosPerfil] = useState({});
+
+  // Cargar datos de perfil de todos los vendedores únicos
+  useEffect(() => {
+    async function fetchUsuariosPerfil() {
+      const carnets = Array.from(new Set(productos.map(p => p.usuario_carnet).filter(Boolean)));
+      if (carnets.length === 0) return;
+      const { data } = await supabase.from('usuarios').select('carnet, nombre, apellido, foto_perfil').in('carnet', carnets);
+      if (Array.isArray(data)) {
+        const map = {};
+        data.forEach(u => { map[u.carnet] = u; });
+        setUsuariosPerfil(map);
+      }
+    }
+    fetchUsuariosPerfil();
+  }, [productos]);
 
   useEffect(() => {
     AsyncStorage.getItem('carnet').then(carnet => {
@@ -197,22 +266,6 @@ export default function ProductosList(props) {
     setModalVisible(false);
     setProductoSeleccionado(null);
     setImagenIndex(0);
-  };
-
-  const handleImagenAnterior = () => {
-    if (productoSeleccionado && Array.isArray(productoSeleccionado.foto_url)) {
-      const newIndex = imagenIndex > 0 ? imagenIndex - 1 : productoSeleccionado.foto_url.length - 1;
-      setImagenIndex(newIndex);
-      flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
-    }
-  };
-
-  const handleImagenSiguiente = () => {
-    if (productoSeleccionado && Array.isArray(productoSeleccionado.foto_url)) {
-      const newIndex = imagenIndex < productoSeleccionado.foto_url.length - 1 ? imagenIndex + 1 : 0;
-      setImagenIndex(newIndex);
-      flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
-    }
   };
 
   const categorias = ['todos', 'comida', 'servicios', 'articulos', 'decoracion'];
@@ -293,6 +346,9 @@ export default function ProductosList(props) {
                 handleProductoPublicado={handleProductoPublicado}
                 setLoading={setLoading}
                 closeMenu={() => setMenuVisible(false)}
+                setDeleteVisible={setDeleteModalVisible}
+                setDeleteTarget={setProductoAEliminar}
+                usuariosPerfil={usuariosPerfil}
               />
             </View>
           )}
@@ -320,63 +376,90 @@ export default function ProductosList(props) {
             {/* Evitar que toques dentro propaguen y cierren */}
             <TouchableWithoutFeedback onPress={() => {}}>
               <View style={[styles.modalContent, { backgroundColor: darkMode ? '#1f2937' : '#fff' }]}>
-                {/* Botón de reportar en la esquina superior derecha */}
-                <TouchableOpacity
-                  style={styles.modalReportButton}
-                  onPress={() => setReportModalVisible(true)}
-                >
-                  <MaterialIcons name="flag" size={22} color="#FF3B30" />
-                </TouchableOpacity>
+                {/* Botón de reportar en la esquina superior derecha (solo si no es mi producto) */}
+                {productoSeleccionado && userCarnet !== productoSeleccionado.usuario_carnet && (
+                  <TouchableOpacity
+                    style={styles.modalReportButton}
+                    onPress={() => setReportModalVisible(true)}
+                  >
+                    <MaterialIcons name="flag" size={22} color="#FF3B30" />
+                  </TouchableOpacity>
+                )}
 
                 {productoSeleccionado && (
                   <>
-                    <View style={{ alignItems: 'center', marginBottom: 12, position: 'relative' }} onLayout={(e) => setViewerWidth(e.nativeEvent.layout.width)}>
+                    <View style={{ alignItems: 'center', marginBottom: 12, position: 'relative', width: '100%' }}>
                       {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
                         <>
-                          <FlatList
-                            ref={flatListRef}
-                            data={productoSeleccionado.foto_url}
-                            horizontal
-                            pagingEnabled
-                            keyExtractor={(uri, idx) => uri + idx}
-                            showsHorizontalScrollIndicator={false}
-                            onMomentumScrollEnd={(e) => {
-                              const w = e.nativeEvent.layoutMeasurement.width || viewerWidth || 1;
-                              const x = e.nativeEvent.contentOffset.x || 0;
-                              const idx = Math.round(x / w);
-                              setImagenIndex(idx);
-                            }}
-                            renderItem={({ item }) => (
-                              <Image
-                                source={{ uri: item }}
-                                style={{ width: viewerWidth, height: 230, borderRadius: 16 }}
-                                resizeMode="cover"
-                              />
+                          <View style={{ width: Dimensions.get('window').width * 0.94, maxWidth: 560, alignSelf: 'center' }}>
+                            <FlatList
+                              ref={flatListRef}
+                              data={productoSeleccionado.foto_url}
+                              horizontal
+                              pagingEnabled
+                              keyExtractor={(uri, idx) => uri + idx}
+                              showsHorizontalScrollIndicator={false}
+                              snapToInterval={Dimensions.get('window').width * 0.94}
+                              decelerationRate="fast"
+                              onScroll={(e) => {
+                                const x = e.nativeEvent.contentOffset.x;
+                                const w = e.nativeEvent.layoutMeasurement.width;
+                                const idx = Math.round(x / w);
+                                if (idx !== imagenIndex) {
+                                  setImagenIndex(idx);
+                                }
+                              }}
+                              scrollEventThrottle={16}
+                              renderItem={({ item, index }) => (
+                                <View style={{ width: Dimensions.get('window').width * 0.94, maxWidth: 560 }}>
+                                  <Image
+                                    source={{ uri: item }}
+                                    style={{ width: '100%', height: 230, borderRadius: 16 }}
+                                    resizeMode="cover"
+                                  />
+                                </View>
+                              )}
+                            />
+                            {/* Navigation Arrows */}
+                            {productoSeleccionado.foto_url.length > 1 && (
+                              <>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.carouselArrow,
+                                    styles.carouselArrowLeft,
+                                    { opacity: imagenIndex === 0 ? 0.3 : 1 }
+                                  ]}
+                                  onPress={() => {
+                                    if (imagenIndex > 0) {
+                                      setImagenIndex(imagenIndex - 1);
+                                      flatListRef.current?.scrollToIndex({ index: imagenIndex - 1, animated: true });
+                                    }
+                                  }}
+                                  activeOpacity={0.7}
+                                  disabled={imagenIndex === 0}
+                                >
+                                  <MaterialIcons name="chevron-left" size={36} color="#fff" style={{ textShadowColor: '#000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, elevation: 4 }} />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.carouselArrow,
+                                    styles.carouselArrowRight,
+                                    { opacity: imagenIndex === productoSeleccionado.foto_url.length - 1 ? 0.3 : 1 }
+                                  ]}
+                                  onPress={() => {
+                                    if (imagenIndex < productoSeleccionado.foto_url.length - 1) {
+                                      setImagenIndex(imagenIndex + 1);
+                                      flatListRef.current?.scrollToIndex({ index: imagenIndex + 1, animated: true });
+                                    }
+                                  }}
+                                  activeOpacity={0.7}
+                                  disabled={imagenIndex === productoSeleccionado.foto_url.length - 1}
+                                >
+                                  <MaterialIcons name="chevron-right" size={36} color="#fff" style={{ textShadowColor: '#000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, elevation: 4 }} />
+                                </TouchableOpacity>
+                              </>
                             )}
-                            getItemLayout={(data, index) => ({
-                              length: viewerWidth,
-                              offset: viewerWidth * index,
-                              index,
-                            })}
-                          />
-                          {productoSeleccionado.foto_url.length > 1 && (
-                            <>
-                              <TouchableOpacity
-                                style={[styles.arrowButtonLeft, { left: 10 }]}
-                                onPress={handleImagenAnterior}
-                                activeOpacity={0.7}
-                              >
-                                <MaterialIcons name="chevron-left" size={32} color="#fff" />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={[styles.arrowButtonRight, { right: 10 }]}
-                                onPress={handleImagenSiguiente}
-                                activeOpacity={0.7}
-                              >
-                                <MaterialIcons name="chevron-right" size={32} color="#fff" />
-                              </TouchableOpacity>
-                            </>
-                          )}
+                          </View>
                           <View style={styles.modalDotsRow}>
                             {productoSeleccionado.foto_url.map((_, idx) => (
                               <View key={idx} style={[styles.modalDot, idx === imagenIndex && styles.modalDotActive]} />
@@ -490,6 +573,109 @@ export default function ProductosList(props) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {/* Modal de confirmación para eliminar producto */}
+      <Modal
+        transparent
+        visible={deleteModalVisible}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deleting) {
+            setDeleteModalVisible(false);
+            setProductoAEliminar(null);
+          }
+        }}
+      >
+        <TouchableWithoutFeedback onPress={() => {
+          if (!deleting) {
+            setDeleteModalVisible(false);
+            setProductoAEliminar(null);
+          }
+        }}>
+          <View style={styles.confirmModalContainer}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.confirmModalContent, { backgroundColor: darkMode ? '#1a1a1a' : '#fff' }]}>
+                {/* Círculo de fondo para el icono */}
+                <View style={[styles.iconCircle, { backgroundColor: darkMode ? '#3d1f1f' : '#fee2e2' }]}>
+                  <MaterialIcons name="delete-outline" size={56} color={darkMode ? '#fca5a5' : '#dc2626'} />
+                </View>
+                
+                <Text style={[styles.confirmTitle, { color: darkMode ? '#fff' : '#1f2937' }]}>
+                  ¿Eliminar este producto?
+                </Text>
+                
+                <Text style={[styles.confirmText, { color: darkMode ? '#9ca3af' : '#6b7280' }]}>
+                  Esta acción es permanente y no se puede revertir. El producto será eliminado de forma definitiva.
+                </Text>
+
+                {productoAEliminar && (
+                  <View style={[styles.productPreview, { backgroundColor: darkMode ? '#262626' : '#f9fafb', borderColor: darkMode ? '#404040' : '#e5e7eb' }]}>
+                    <Text style={[styles.productPreviewName, { color: darkMode ? '#e5e7eb' : '#374151' }]} numberOfLines={1}>
+                      {productoAEliminar.nombre}
+                    </Text>
+                    <Text style={[styles.productPreviewPrice, { color: darkMode ? '#7fb0ff' : '#2563EB' }]}>
+                      ₡{productoAEliminar.precio}
+                    </Text>
+                  </View>
+                )}
+                
+                <View style={styles.confirmButtonsRow}>
+                  <TouchableOpacity
+                    style={[styles.confirmButton, styles.confirmCancelButton, { backgroundColor: darkMode ? '#374151' : '#f3f4f6', borderColor: darkMode ? '#4b5563' : '#d1d5db' }]}
+                    onPress={() => {
+                      if (!deleting) {
+                        setDeleteModalVisible(false);
+                        setProductoAEliminar(null);
+                      }
+                    }}
+                    disabled={deleting}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialIcons name="close" size={20} color={darkMode ? '#d1d5db' : '#6b7280'} style={{ marginRight: 6 }} />
+                    <Text style={[styles.confirmButtonText, { color: darkMode ? '#e5e7eb' : '#374151', fontWeight: '600' }]}>
+                      Cancelar
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.confirmButton, styles.confirmDeleteButton, { 
+                      backgroundColor: deleting ? (darkMode ? '#991b1b' : '#fca5a5') : '#ef4444',
+                      opacity: deleting ? 0.7 : 1 
+                    }]}
+                    onPress={async () => {
+                      if (!productoAEliminar || deleting) return;
+                      try {
+                        setDeleting(true);
+                        await supabase.from('productos').delete().eq('id', productoAEliminar.id);
+                        await handleProductoPublicado();
+                        setDeleteModalVisible(false);
+                        setProductoAEliminar(null);
+                      } catch (err) {
+                        console.error('Error al eliminar producto:', err);
+                        Alert.alert('Error', 'No se pudo eliminar el producto');
+                      } finally {
+                        setDeleting(false);
+                      }
+                    }}
+                    disabled={deleting}
+                    activeOpacity={0.8}
+                  >
+                    {deleting ? (
+                      <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+                    ) : (
+                      <MaterialIcons name="delete-forever" size={20} color="#fff" style={{ marginRight: 6 }} />
+                    )}
+                    <Text style={[styles.confirmButtonText, { color: '#fff', fontWeight: '700' }]}>
+                      {deleting ? 'Eliminando...' : 'Eliminar'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('PublicarProducto', { onProductoPublicado: handleProductoPublicado })} activeOpacity={0.85}>
         <Text style={styles.fabText}>＋</Text>
       </TouchableOpacity>
@@ -568,15 +754,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 22,
     elevation: 4,
-    flexDirection: 'row',
+    flexDirection: 'column',
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.07,
     shadowRadius: 8,
-    alignItems: 'center',
-    minHeight: 120,
-    padding: 8,
+    alignItems: 'stretch',
+    minHeight: undefined,
+    padding: 0,
     borderWidth: 1,
   },
   imageContainer: {
@@ -752,40 +938,117 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
-  arrowButtonLeft: {
-    position: 'absolute',
-    left: 10,
-    top: '50%',
-    marginTop: -24,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0, 122, 255, 0.9)',
+
+  // Estilos para modal de confirmación
+  confirmModalContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    zIndex: 100,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 20,
   },
-  arrowButtonRight: {
-    position: 'absolute',
-    right: 10,
-    top: '50%',
-    marginTop: -24,
-    width: 48,
-    height: 48,
+  confirmModalContent: {
+    width: '100%',
+    maxWidth: 400,
     borderRadius: 24,
-    backgroundColor: 'rgba(0, 122, 255, 0.9)',
+    padding: 28,
+    alignItems: 'center',
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+  },
+  iconCircle: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 5,
+    marginBottom: 20,
+  },
+  confirmTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  confirmText: {
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
+    paddingHorizontal: 8,
+  },
+  productPreview: {
+    width: '100%',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  productPreviewName: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  productPreviewPrice: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 12,
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  confirmCancelButton: {
+    borderWidth: 1.5,
+  },
+  confirmDeleteButton: {
+    elevation: 2,
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  confirmButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Carousel arrow styles
+  carouselArrow: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -24,
+    zIndex: 10,
+    backgroundColor: 'rgba(30,41,59,0.75)',
+    borderRadius: 24,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    zIndex: 100,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  carouselArrowLeft: {
+    left: 8,
+  },
+  carouselArrowRight: {
+    right: 8,
   },
 });

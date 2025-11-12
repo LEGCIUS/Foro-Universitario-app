@@ -664,8 +664,11 @@ const ViewUserProfile = ({ route, navigation }) => {
                   <Text style={styles.infoTextCompact} numberOfLines={1}>
                     {(() => {
                       try {
-                        const fecha = new Date(usuario.fecha_nacimiento);
-                        return fecha.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+                        const fechaSolo = usuario.fecha_nacimiento.split('T')[0];
+                        const [anio, mes, dia] = fechaSolo.split('-').map(Number);
+                        const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 
+                                       'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+                        return `${dia} de ${meses[mes - 1]}`;
                       } catch {
                         return usuario.fecha_nacimiento;
                       }
