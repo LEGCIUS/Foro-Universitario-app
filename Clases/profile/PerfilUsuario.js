@@ -874,20 +874,24 @@ function PublicacionesTab({ usuario, darkMode }) {
       
       {/* Confirmación estilizada para eliminar publicación */}
       <Modal transparent visible={confirmDeleteVisible} animationType="fade" onRequestClose={cancelDelete}>
-        <View style={styles.confirmModalContainer}>
-          <View style={[styles.confirmModalContent, darkMode && styles.confirmModalContentDark]}>
-            <Text style={[styles.confirmTitle, darkMode && styles.confirmTitleDark]}>Eliminar publicación</Text>
-            <Text style={[styles.confirmText, darkMode && styles.confirmTextDark]}>¿Estás seguro que deseas eliminar esta publicación? Esta acción no se puede deshacer.</Text>
-            <View style={styles.confirmButtonsRow}>
-              <TouchableOpacity style={[styles.confirmButton, styles.confirmCancelButton, darkMode && styles.confirmCancelButtonDark]} onPress={cancelDelete}>
-                <Text style={[styles.confirmButtonText, darkMode && styles.confirmButtonTextDark]}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.confirmButton, styles.confirmDeleteButton]} onPress={performDeletePost}>
-                <Text style={[styles.confirmButtonText, { fontWeight: '700', color: '#fff' }]}>Eliminar</Text>
-              </TouchableOpacity>
-            </View>
+        <TouchableWithoutFeedback onPress={cancelDelete}>
+          <View style={styles.confirmModalContainer}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.confirmModalContent, darkMode && styles.confirmModalContentDark]}>
+                <Text style={[styles.confirmTitle, darkMode && styles.confirmTitleDark]}>Eliminar publicación</Text>
+                <Text style={[styles.confirmText, darkMode && styles.confirmTextDark]}>¿Estás seguro que deseas eliminar esta publicación? Esta acción no se puede deshacer.</Text>
+                <View style={styles.confirmButtonsRow}>
+                  <TouchableOpacity style={[styles.confirmButton, styles.confirmCancelButton, darkMode && styles.confirmCancelButtonDark]} onPress={cancelDelete}>
+                    <Text style={[styles.confirmButtonText, darkMode && styles.confirmButtonTextDark]}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.confirmButton, styles.confirmDeleteButton]} onPress={performDeletePost}>
+                    <Text style={[styles.confirmButtonText, { fontWeight: '700', color: '#fff' }]}>Eliminar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </View>
   );
@@ -1855,6 +1859,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
+    backgroundColor: '#fff', // Fondo opaco para el modal de confirmación
   },
 
   iconCircle: {
@@ -1941,6 +1946,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+    backgroundColor: '#ef4444', // Rojo visible para el botón de eliminar
   },
 
   confirmButtonText: {

@@ -283,7 +283,7 @@ export default function HomeScreen({ onLogout, navigation }) {
       <View style={{ paddingTop: Math.max(10, insets.top + 4), backgroundColor: darkMode ? '#111' : '#fff' }}>
         <View style={styles.header}>
           {/* Título y botones mantienen la misma distribución inicial */}
-          <Text style={[styles.headerTitle, { color: darkMode ? '#ffffffff' : '#000000ff' }]}>Foro Universitario</Text>
+          <Text style={[styles.headerTitle, { color: darkMode ? '#ffffffff' : '#000000ff' }]}>Foro U</Text>
 
           <View style={styles.headerButtons}>
             <TouchableOpacity 

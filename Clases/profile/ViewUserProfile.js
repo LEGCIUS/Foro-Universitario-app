@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {View,Text,StyleSheet,ScrollView,Image,TouchableOpacity,ActivityIndicator,Dimensions,RefreshControl,TextInput,Alert,Modal,Platform,StatusBar} from 'react-native';
+import {View,Text,StyleSheet,ScrollView,Image,TouchableOpacity,ActivityIndicator,Dimensions,RefreshControl,TextInput,Alert,Modal,Platform,StatusBar,TouchableWithoutFeedback,FlatList} from 'react-native';
+import { Linking } from 'react-native';
+// styles global para uso en todos los componentes
+let styles;
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -11,6 +14,7 @@ import { supabase } from '../../Supabase/supabaseClient';
 import CommentsModal from '../components/CommentsModal';
 import Etiquetas from '../components/Etiquetas';
 import PublicationModal from '../publications/PublicationModal';
+import CustomAlert from '../components/CustomAlert';
 // Eliminado zoom avanzado: usamos solo Image ampliada
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -21,6 +25,9 @@ const ViewUserProfile = ({ route, navigation }) => {
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
 
+  // Estado para mostrar sección activa (publicaciones o ventas)
+  const [mostrarSeccion, setMostrarSeccion] = useState('publicaciones');
+
   const [usuario, setUsuario] = useState(null);
   const [publicaciones, setPublicaciones] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +36,15 @@ const ViewUserProfile = ({ route, navigation }) => {
   const [estadisticas, setEstadisticas] = useState({
     totalPublicaciones: 0,
     totalMeGusta: 0,
+  });
+
+  // Estado global para CustomAlert
+  const [alert, setAlert] = useState({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+    onConfirm: () => setAlert(a => ({ ...a, visible: false }))
   });
 
   // Estados para control de video
@@ -533,7 +549,7 @@ const ViewUserProfile = ({ route, navigation }) => {
     );
   };
 
-  const styles = createStyles(darkMode);
+  styles = createStyles(darkMode);
 
   if (loading) {
     return (
@@ -696,33 +712,58 @@ const ViewUserProfile = ({ route, navigation }) => {
         </View>
       )}
 
-      {/* Estadísticas */}
-      <View style={styles.estadisticasContainer}>
-        <View style={styles.estadisticaItem}>
-          <Text style={styles.estadisticaNumero}>{estadisticas.totalPublicaciones}</Text>
-          <Text style={styles.estadisticaLabel}>Publicaciones</Text>
-        </View>
-        <View style={styles.estadisticaItem}>
-          <Text style={styles.estadisticaNumero}>{estadisticas.totalMeGusta}</Text>
-          <Text style={styles.estadisticaLabel}>Me gusta</Text>
-        </View>
+
+      {/* Botones para ver publicaciones y ventas */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', marginVertical: 10 }}>
+        <TouchableOpacity
+          style={{
+            backgroundColor: '#007AFF',
+            paddingVertical: 10,
+            paddingHorizontal: 20,
+            borderRadius: 20,
+            marginHorizontal: 10,
+          }}
+          onPress={() => setMostrarSeccion('publicaciones')}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Publicaciones</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{
+            backgroundColor: '#34C759',
+            paddingVertical: 10,
+            paddingHorizontal: 20,
+            borderRadius: 20,
+            marginHorizontal: 10,
+          }}
+          onPress={() => setMostrarSeccion('ventas')}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Ventas</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Sección de publicaciones */}
-      <View style={styles.publicacionesSection}>
-        <Text style={styles.sectionTitle}>Publicaciones</Text>
-        
-        {publicaciones.length === 0 ? (
-          <View style={styles.sinPublicaciones}>
-            <MaterialIcons name="post-add" size={48} color="#ccc" />
-            <Text style={styles.sinPublicacionesText}>
-              Este usuario aún no ha publicado nada
-            </Text>
-          </View>
-        ) : (
-          renderPublicacionGrid()
-        )}
-      </View>
+      {/* Mostrar la sección seleccionada */}
+      {mostrarSeccion === 'publicaciones' && (
+        <View style={styles.publicacionesSection}>
+          <Text style={styles.sectionTitle}>Publicaciones</Text>
+          {publicaciones.length === 0 ? (
+            <View style={styles.sinPublicaciones}>
+              <MaterialIcons name="post-add" size={48} color="#ccc" />
+              <Text style={styles.sinPublicacionesText}>
+                Este usuario aún no ha publicado nada
+              </Text>
+            </View>
+          ) : (
+            renderPublicacionGrid()
+          )}
+        </View>
+      )}
+      {mostrarSeccion === 'ventas' && (
+        <View style={styles.publicacionesSection}>
+          <Text style={styles.sectionTitle}>Ventas</Text>
+          {/* Aquí se mostraría la información de ventas del usuario */}
+          <VentasUsuario userId={userId} setAlert={setAlert} alert={alert} />
+        </View>
+      )}
 
       {/* Modal para ver publicación seleccionada (reutilizable) */}
       <PublicationModal
@@ -858,11 +899,25 @@ const ViewUserProfile = ({ route, navigation }) => {
                     const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
                     if (error) throw error;
                     setReportModalVisible(false);
-                    setReportText('');
-                    setReportReason('Contenido inapropiado');
-                    Alert.alert('Gracias','Tu reporte ha sido enviado. Revisaremos el contenido.');
+                    setTimeout(() => {
+                      setAlert({
+                        visible: true,
+                        type: 'success',
+                        title: '¡Gracias!',
+                        message: 'Tu reporte ha sido enviado. Revisaremos el contenido.',
+                        onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                      });
+                      setReportText('');
+                      setReportReason('Contenido inapropiado');
+                    }, 300);
                   } catch (err) {
-                    Alert.alert('Error', err.message || 'No se pudo enviar el reporte.');
+                    setAlert({
+                      visible: true,
+                      type: 'error',
+                      title: 'Error',
+                      message: err.message || 'No se pudo enviar el reporte.',
+                      onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                    });
                   }
                 }}
                 style={{ paddingVertical:10, paddingHorizontal:16, borderRadius:10, backgroundColor:'#FF3B30' }}
@@ -899,6 +954,15 @@ const ViewUserProfile = ({ route, navigation }) => {
         </View>
       </Modal>
     </ScrollView>
+    {/* CustomAlert global para feedback */}
+    <CustomAlert
+      visible={alert.visible}
+      type={alert.type}
+      title={alert.title}
+      message={alert.message}
+      onConfirm={alert.onConfirm}
+      onClose={alert.onConfirm}
+    />
     </View>
   );
 };
@@ -974,14 +1038,14 @@ const createStyles = (darkMode) => StyleSheet.create({
     right: 0,
     backgroundColor: '#fff',
     borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    minWidth: 160,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    minWidth: 120,
     elevation: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    shadowOpacity: 0.22,
+    shadowRadius: 4,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     zIndex: 9999,
@@ -993,7 +1057,7 @@ const createStyles = (darkMode) => StyleSheet.create({
   headerMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
     paddingHorizontal: 12,
   },
   headerMenuText: {
@@ -1329,5 +1393,489 @@ const createStyles = (darkMode) => StyleSheet.create({
     color: '#fff',
   },
 });
+
+
+// Componente para mostrar ventas del usuario
+const VentasUsuario = ({ userId, setAlert }) => {
+  const [ventas, setVentas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { darkMode } = useTheme();
+  const [productos, setProductos] = useState([]);
+  const [loadingVentas, setLoadingVentas] = useState(true);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [imagenIndex, setImagenIndex] = useState(0);
+  const flatListRef = React.useRef(null);
+  // Estado para modal de reporte de producto (separado del global)
+  const [reportProductoModalVisible, setReportProductoModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState('Contenido inapropiado');
+  const [reportText, setReportText] = useState('');
+  // Formatear hora_inicio_venta ("HH:MM") a hora local amigable
+  const formatHoraVenta = (horaStr) => {
+    if (!horaStr) return null;
+    try {
+      const [h, m] = String(horaStr).split(':');
+      const d = new Date();
+      d.setHours(parseInt(h || '0', 10), parseInt(m || '0', 10), 0, 0);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return String(horaStr);
+    }
+  };
+  const fetchProductos = async () => {
+    setLoadingVentas(true);
+    if (!userId) {
+      setProductos([]);
+      setLoadingVentas(false);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('productos')
+        .select('*')
+        .eq('usuario_carnet', userId)
+        .order('fecha_publicacion', { ascending: false });
+      if (!error && data) {
+        setProductos(data);
+      } else if (error) {
+        console.error('Error al cargar productos:', error);
+      }
+    } catch (err) {
+      console.error('Error al cargar productos:', err);
+    } finally {
+      setLoadingVentas(false);
+    }
+  };
+  useEffect(() => {
+    fetchProductos();
+    // eslint-disable-next-line
+  }, [userId]);
+  if (loadingVentas) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: darkMode ? '#121212' : '#f5f7fb' }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+  if (productos.length === 0) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: darkMode ? '#121212' : '#f5f7fb' }}>
+        <MaterialIcons name="shopping-cart" size={64} color={darkMode ? '#555' : '#ccc'} />
+        <Text style={{ fontSize: 16, color: darkMode ? '#999' : '#666', marginTop: 16, textAlign: 'center' }}>
+          Este usuario no tiene productos a la venta
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1, backgroundColor: darkMode ? '#121212' : '#f5f7fb' }} contentContainerStyle={{ padding: 12 }}>
+        {productos.map((producto) => (
+          <TouchableOpacity
+            key={producto.id}
+            style={{
+              backgroundColor: darkMode ? '#1e1e1e' : '#fff',
+              borderRadius: 12,
+              marginBottom: 12,
+              overflow: 'hidden',
+              elevation: 2,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+            }}
+            onPress={() => {
+              setProductoSeleccionado(producto);
+              setImagenIndex(0);
+              setModalVisible(true);
+            }}
+            activeOpacity={0.8}
+          >
+            {/* Imagen del producto */}
+            <View style={{ position: 'relative' }}>
+              {producto.foto_url && Array.isArray(producto.foto_url) && producto.foto_url.length > 0 ? (
+                <Image
+                  source={{ uri: producto.foto_url[0] }}
+                  style={{ width: '100%', height: 200, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={{ width: '100%', height: 200, backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0', justifyContent: 'center', alignItems: 'center', borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+                  <MaterialIcons name="image" size={64} color={darkMode ? '#555' : '#ccc'} />
+                </View>
+              )}
+              {/* Indicador de múltiples imágenes */}
+              {producto.foto_url && Array.isArray(producto.foto_url) && producto.foto_url.length > 1 && (
+                <View style={{ 
+                  position: 'absolute', 
+                  top: 8, 
+                  right: 8, 
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)', 
+                  paddingHorizontal: 8, 
+                  paddingVertical: 4, 
+                  borderRadius: 12,
+                  flexDirection: 'row',
+                  alignItems: 'center'
+                }}>
+                  <MaterialIcons name="photo-library" size={14} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 12, marginLeft: 4, fontWeight: '600' }}>
+                    {producto.foto_url.length}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {/* Información del producto */}
+            <View style={{ padding: 12 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#fff' : '#111', marginBottom: 8 }} numberOfLines={2}>
+                {producto.nombre}
+              </Text>
+              <View style={{ 
+                backgroundColor: darkMode ? '#243244' : '#e6f0ff', 
+                borderColor: darkMode ? '#314463' : '#dbeafe',
+                borderWidth: 1,
+                paddingHorizontal: 12, 
+                paddingVertical: 8, 
+                borderRadius: 8,
+                alignSelf: 'flex-start',
+                marginBottom: 12
+              }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: darkMode ? '#7fb0ff' : '#2563EB' }}>
+                  Precio: ₡{producto.precio}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 14, color: darkMode ? '#aaa' : '#666', marginBottom: 12, lineHeight: 20 }} numberOfLines={3}>
+                {producto.descripcion}
+              </Text>
+              {/* Información adicional */}
+              <View style={{ borderTopWidth: 1, borderTopColor: darkMode ? '#333' : '#eee', paddingTop: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                  <MaterialIcons name="person" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                  <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                    <Text style={{ fontWeight: '600' }}>Vendedor:</Text> {producto.nombre_vendedor}
+                  </Text>
+                </View>
+                {producto.telefono && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                    <MaterialIcons name="phone" size={16} color="#25D366" />
+                    <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                      {producto.telefono}
+                    </Text>
+                  </View>
+                )}
+                {producto.categoria && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                    <MaterialIcons name="category" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                    <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                      <Text style={{ fontWeight: '600' }}>Categoría:</Text> {producto.categoria}
+                    </Text>
+                  </View>
+                )}
+                {producto.hora_inicio_venta && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                    <MaterialIcons name="schedule" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                    <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                      <Text style={{ fontWeight: '600' }}>Inicio de venta: </Text>
+                      {formatHoraVenta(producto.hora_inicio_venta)}
+                    </Text>
+                  </View>
+                )}
+                {producto.fecha_publicacion && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                    <MaterialIcons name="event" size={16} color={darkMode ? '#7fb0ff' : '#2563EB'} />
+                    <Text style={{ fontSize: 13, color: darkMode ? '#cbd5e1' : '#475569', marginLeft: 6 }}>
+                      Publicado: {new Date(producto.fecha_publicacion).toLocaleDateString('es-ES')}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))}
+        {/* Modal con el detalle del producto */}
+        <Modal
+          visible={modalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => {
+            setModalVisible(false);
+            setProductoSeleccionado(null);
+            setImagenIndex(0);
+          }}
+        >
+          <TouchableWithoutFeedback onPress={() => {
+            setModalVisible(false);
+            setProductoSeleccionado(null);
+            setImagenIndex(0);
+          }}>
+            <View style={{
+              flex: 1,
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={{
+                  width: '90%',
+                  maxWidth: 500,
+                  backgroundColor: darkMode ? '#1f2937' : '#fff',
+                  borderRadius: 20,
+                  padding: 20,
+                  maxHeight: '90%',
+                  position: 'relative',
+                }}>
+                  {/* Botón de reportar arriba a la derecha */}
+                  {productoSeleccionado && (
+                    <TouchableOpacity
+                      style={{ position: 'absolute', top: 18, right: 18, zIndex: 10, backgroundColor: 'rgba(255,59,48,0.85)', borderRadius: 20, padding: 8 }}
+                      onPress={() => setReportProductoModalVisible(true)}
+                    >
+                      <MaterialIcons name="flag" size={24} color="#fff" />
+                    </TouchableOpacity>
+                  )}
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {productoSeleccionado && (
+                      <>
+                        <View style={{ alignItems: 'center', marginBottom: 12, position: 'relative', width: '100%' }}>
+                          {Array.isArray(productoSeleccionado.foto_url) && productoSeleccionado.foto_url.length > 0 ? (
+                            <View style={{ width: Dimensions.get('window').width * 0.9, maxWidth: 500, alignSelf: 'center', position: 'relative' }}>
+                              <FlatList
+                                ref={flatListRef}
+                                data={productoSeleccionado.foto_url}
+                                horizontal
+                                pagingEnabled
+                                keyExtractor={(uri, idx) => uri + idx}
+                                showsHorizontalScrollIndicator={false}
+                                snapToInterval={Dimensions.get('window').width * 0.9}
+                                decelerationRate="fast"
+                                onScroll={(e) => {
+                                  const x = e.nativeEvent.contentOffset.x;
+                                  const w = e.nativeEvent.layoutMeasurement.width;
+                                  const idx = Math.round(x / w);
+                                  if (idx !== imagenIndex) {
+                                    setImagenIndex(idx);
+                                  }
+                                }}
+                                scrollEventThrottle={16}
+                                renderItem={({ item, index }) => (
+                                  <View style={{ width: Dimensions.get('window').width * 0.9, maxWidth: 500 }}>
+                                    <Image
+                                      source={{ uri: item }}
+                                      style={{ width: '100%', height: 230, borderRadius: 16 }}
+                                      resizeMode="cover"
+                                    />
+                                  </View>
+                                )}
+                              />
+                              {/* Flechas de navegación */}
+                              {productoSeleccionado.foto_url.length > 1 && (
+                                <>
+                                  <TouchableOpacity
+                                    style={[styles.carouselArrow, styles.carouselArrowLeft, { opacity: imagenIndex === 0 ? 0.3 : 1, position: 'absolute', top: '45%', left: 8, zIndex: 20 }]}
+                                    onPress={() => {
+                                      if (imagenIndex > 0) {
+                                        setImagenIndex(imagenIndex - 1);
+                                        flatListRef.current?.scrollToIndex({ index: imagenIndex - 1, animated: true });
+                                      }
+                                    }}
+                                    activeOpacity={0.7}
+                                    disabled={imagenIndex === 0}
+                                  >
+                                    <MaterialIcons name="chevron-left" size={36} color="#fff" style={{ textShadowColor: '#000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, elevation: 4 }} />
+                                  </TouchableOpacity>
+                                  <TouchableOpacity
+                                    style={[styles.carouselArrow, styles.carouselArrowRight, { opacity: imagenIndex === productoSeleccionado.foto_url.length - 1 ? 0.3 : 1, position: 'absolute', top: '45%', right: 8, zIndex: 20 }]}
+                                    onPress={() => {
+                                      if (imagenIndex < productoSeleccionado.foto_url.length - 1) {
+                                        setImagenIndex(imagenIndex + 1);
+                                        flatListRef.current?.scrollToIndex({ index: imagenIndex + 1, animated: true });
+                                      }
+                                    }}
+                                    activeOpacity={0.7}
+                                    disabled={imagenIndex === productoSeleccionado.foto_url.length - 1}
+                                  >
+                                    <MaterialIcons name="chevron-right" size={36} color="#fff" style={{ textShadowColor: '#000', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, elevation: 4 }} />
+                                  </TouchableOpacity>
+                                </>
+                              )}
+                              <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 8 }}>
+                                {productoSeleccionado.foto_url.map((_, idx) => (
+                                  <View
+                                    key={idx}
+                                    style={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: 4,
+                                      backgroundColor: idx === imagenIndex ? '#007AFF' : '#ccc',
+                                      marginHorizontal: 4,
+                                    }}
+                                  />
+                                ))}
+                              </View>
+                              <Text style={{ marginTop: 6, color: darkMode ? '#94a3b8' : '#64748b' }}>
+                                {imagenIndex + 1} / {productoSeleccionado.foto_url?.length || 1}
+                              </Text>
+                            </View>
+                          ) : (
+                            <View style={{ width: '100%', height: 230, backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}>
+                              <MaterialIcons name="image" size={48} color={darkMode ? '#555' : '#ccc'} />
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 20, fontWeight: '700', color: darkMode ? '#fff' : '#0f172a', marginBottom: 8 }}>
+                          {productoSeleccionado.nombre}
+                        </Text>
+                        <Text style={{ fontSize: 24, fontWeight: '700', color: '#007AFF', marginBottom: 12 }}>
+                          Precio: ₡{productoSeleccionado.precio}
+                        </Text>
+                        <Text style={{ fontSize: 15, color: darkMode ? '#cbd5e1' : '#334155', marginBottom: 12 }}>
+                          {productoSeleccionado.descripcion}
+                        </Text>
+                        <Text style={{ fontSize: 14, color: darkMode ? '#cbd5e1' : '#475569', marginBottom: 16 }}>
+                          Vendedor: <Text style={{ color: darkMode ? '#fff' : '#0e141b', fontWeight: 'bold' }}>{productoSeleccionado.nombre_vendedor}</Text>
+                        </Text>
+                        {productoSeleccionado?.hora_inicio_venta && (
+                          <Text style={{ fontSize: 14, color: darkMode ? '#cbd5e1' : '#475569', marginBottom: 16 }}>
+                            <Text style={{ fontWeight: '700', color: darkMode ? '#7fb0ff' : '#2563EB' }}>Inicio de venta: </Text>
+                            {formatHoraVenta(productoSeleccionado.hora_inicio_venta)}
+                          </Text>
+                        )}
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: '#25D366',
+                            paddingVertical: 14,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                            marginBottom: 10,
+                          }}
+                          onPress={() => {
+                            const num = (productoSeleccionado?.telefono || '').toString().replace(/\D/g, '');
+                            if (!num) return Alert.alert('Teléfono no disponible');
+                            const url = `https://wa.me/${num}?text=${encodeURIComponent(productoSeleccionado?.mensaje_whatsapp || 'Hola, estoy interesado.')}`;
+                            Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir WhatsApp.'));
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Contactar por WhatsApp</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: '#007AFF',
+                            paddingVertical: 14,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                          }}
+                          onPress={() => {
+                            setModalVisible(false);
+                            setProductoSeleccionado(null);
+                            setImagenIndex(0);
+                          }}
+                        >
+                          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Cerrar</Text>
+                        </TouchableOpacity>
+                                        {/* Modal de reporte de producto */}
+                                        <Modal
+                                          visible={reportProductoModalVisible}
+                                          transparent
+                                          animationType="fade"
+                                          onRequestClose={() => setReportProductoModalVisible(false)}
+                                        >
+                                          <TouchableOpacity
+                                            activeOpacity={1}
+                                            onPressOut={() => setReportProductoModalVisible(false)}
+                                            style={{ flex:1, backgroundColor:'rgba(0,0,0,0.55)', justifyContent:'center', alignItems:'center', padding:16 }}
+                                          >
+                                            <TouchableOpacity
+                                              activeOpacity={1}
+                                              style={{ width:'96%', maxWidth:420, backgroundColor: darkMode ? '#1c1c1e':'#fff', borderRadius:18, padding:18 }}
+                                              onPress={() => {}}
+                                            >
+                                              <Text style={{ fontSize:18, fontWeight:'700', color: darkMode ? '#fff':'#111', marginBottom:10 }}>Reportar producto</Text>
+                                              <Text style={{ fontSize:14, color: darkMode ? '#ccc':'#444', marginBottom:12 }}>Selecciona un motivo. Tu reporte es anónimo.</Text>
+                                              {['Contenido inapropiado','Violencia','Hate o acoso','Spam o engaño','Otro'].map(motivo => (
+                                                <TouchableOpacity
+                                                  key={motivo}
+                                                  onPress={() => setReportReason(motivo)}
+                                                  style={{
+                                                    paddingVertical:10,
+                                                    paddingHorizontal:12,
+                                                    borderRadius:10,
+                                                    marginBottom:8,
+                                                    borderWidth:1,
+                                                    borderColor: reportReason === motivo ? '#FF3B30' : (darkMode ? '#333':'#e5e7eb'),
+                                                    backgroundColor: reportReason === motivo ? (darkMode ? '#2a1b1b':'#ffeceb') : 'transparent'
+                                                  }}
+                                                >
+                                                  <Text style={{ color: darkMode ? '#eee':'#222', fontWeight: reportReason === motivo ? '700':'500' }}>{motivo}</Text>
+                                                </TouchableOpacity>
+                                              ))}
+                                              <Text style={{ fontSize:14, color: darkMode ? '#ccc':'#444', marginTop:6, marginBottom:6 }}>Comentario (opcional)</Text>
+                                              <TextInput
+                                                value={reportText}
+                                                onChangeText={setReportText}
+                                                placeholder="Describe brevemente el problema"
+                                                placeholderTextColor={darkMode ? '#888':'#999'}
+                                                multiline
+                                                style={{ minHeight:80, borderWidth:1, borderColor: darkMode ? '#333':'#e5e7eb', borderRadius:10, padding:10, color: darkMode ? '#fff':'#111', backgroundColor: darkMode ? '#111':'#fafafa' }}
+                                              />
+                                              <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:14 }}>
+                                                <TouchableOpacity onPress={() => setReportProductoModalVisible(false)} style={{ paddingVertical:10, paddingHorizontal:16, borderRadius:10, marginRight:8, backgroundColor: darkMode ? '#333':'#eee' }}>
+                                                  <Text style={{ color: darkMode ? '#fff':'#111', fontWeight:'600' }}>Cancelar</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                  onPress={async () => {
+                                                    try {
+                                                      const carnet = await AsyncStorage.getItem('carnet');
+                                                      if (!carnet || !productoSeleccionado) throw new Error('No se pudo identificar al usuario o el producto');
+                                                      const payload = {
+                                                        producto_id: productoSeleccionado?.id || null,
+                                                        carnet_reporta: carnet,
+                                                        carnet_publica: productoSeleccionado?.usuario_carnet || null,
+                                                        motivo: reportReason,
+                                                        detalle: reportText || null,
+                                                        created_at: new Date().toISOString(),
+                                                      };
+                                                      const { error } = await supabase.from('reportes_ventas').insert([payload]);
+                                                      if (error) throw error;
+                                                      setAlert({
+                                                        visible: true,
+                                                        type: 'success',
+                                                        title: 'Reporte enviado',
+                                                        message: 'Gracias. Revisaremos el reporte.',
+                                                        onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                                                      });
+                                                      setReportProductoModalVisible(false);
+                                                      setReportText('');
+                                                      setReportReason('Contenido inapropiado');
+                                                    } catch (err) {
+                                                      console.error('Error al enviar reporte:', err);
+                                                      setAlert({
+                                                        visible: true,
+                                                        type: 'error',
+                                                        title: 'Error',
+                                                        message: 'No se pudo enviar el reporte. Intenta de nuevo.',
+                                                        onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                                                      });
+                                                    }
+                                                  }}
+                                                  style={{ paddingVertical:10, paddingHorizontal:16, borderRadius:10, backgroundColor:'#FF3B30' }}
+                                                >
+                                                  <Text style={{ color:'#fff', fontWeight:'700' }}>Enviar</Text>
+                                                </TouchableOpacity>
+                                              </View>
+                                            </TouchableOpacity>
+                                          </TouchableOpacity>
+                                        </Modal>
+                      </>
+                    )}
+                  </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      </ScrollView>
+      {/* CustomAlert eliminado aquí, solo se renderiza globalmente en ViewUserProfile */}
+    </View>
+  );
+};
 
 export default ViewUserProfile;

@@ -6,6 +6,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import CustomAlert from '../components/CustomAlert';
 
 function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu, setDeleteVisible, setDeleteTarget, usuariosPerfil }) {
   const { darkMode } = useTheme();
@@ -180,6 +181,14 @@ const MemoProductoCard = React.memo(ProductoCard);
 
 
 export default function ProductosList(props) {
+    // Estado para CustomAlert
+    const [alert, setAlert] = useState({
+      visible: false,
+      type: 'success',
+      title: '',
+      message: '',
+      onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+    });
   const { onVerDetalle, navigation } = props;
   const { darkMode } = useTheme();
   const responsive = useResponsive();
@@ -554,13 +563,25 @@ export default function ProductosList(props) {
                         const { error } = await supabase.from('reportes_ventas').insert([payload]);
                         if (error) throw error;
 
-                        Alert.alert('Reporte enviado', 'Gracias. Revisaremos el reporte.');
+                        setAlert({
+                          visible: true,
+                          type: 'success',
+                          title: 'Reporte enviado',
+                          message: 'Gracias. Revisaremos el reporte.',
+                          onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                        });
                         setReportModalVisible(false);
                         setReportText('');
                         setReportReason('Contenido inapropiado');
                       } catch (err) {
                         console.error('Error al enviar reporte:', err);
-                        Alert.alert('Error', 'No se pudo enviar el reporte. Intenta de nuevo.');
+                        setAlert({
+                          visible: true,
+                          type: 'error',
+                          title: 'Error',
+                          message: 'No se pudo enviar el reporte. Intenta de nuevo.',
+                          onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                        });
                       }
                     }}
                     style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: '#FF3B30' }}
@@ -652,7 +673,13 @@ export default function ProductosList(props) {
                         setProductoAEliminar(null);
                       } catch (err) {
                         console.error('Error al eliminar producto:', err);
-                        Alert.alert('Error', 'No se pudo eliminar el producto');
+                        setAlert({
+                          visible: true,
+                          type: 'error',
+                          title: 'Error',
+                          message: 'No se pudo eliminar el producto',
+                          onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                        });
                       } finally {
                         setDeleting(false);
                       }
@@ -679,6 +706,14 @@ export default function ProductosList(props) {
       <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('PublicarProducto', { onProductoPublicado: handleProductoPublicado })} activeOpacity={0.85}>
         <Text style={styles.fabText}>＋</Text>
       </TouchableOpacity>
+      <CustomAlert
+        visible={alert.visible}
+        type={alert.type}
+        title={alert.title}
+        message={alert.message}
+        onConfirm={alert.onConfirm}
+        onClose={alert.onConfirm}
+      />
     </View>
   );
 }
