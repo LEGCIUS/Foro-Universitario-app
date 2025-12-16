@@ -1052,3 +1052,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+
+
+//Saprissa campeon en diciembre si señor
