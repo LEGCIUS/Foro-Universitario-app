@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Alert, Platform, FlatList } from 'react-native';
 import { Platform as RNPlatform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import { Buffer } from 'buffer';
-import { supabase } from '../../Supabase/supabaseClient';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
+import { uploadImage } from '../../src/services/api';
+import { createProduct, getProduct, updateProduct } from '../../src/services/products';
 
 export default function ProductoForm({ onProductoPublicado, onCancelar, producto, modo }) {
   const { darkMode } = useTheme();
@@ -36,11 +34,12 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
     async function fetchProducto() {
       if (modo === 'editar' && producto?.id) {
         setLoadingProducto(true);
-        const { data, error } = await supabase
-          .from('productos')
-          .select('*')
-          .eq('id', producto.id)
-          .single();
+        let data;
+        try {
+          data = await getProduct(producto.id);
+        } catch (_) {
+          data = null;
+        }
         if (data) {
           setNombre(data.nombre || '');
           setDescripcion(data.descripcion || '');
@@ -123,7 +122,6 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
       }
       // Subir imágenes y obtener URLs públicas
       let fotoUrlArr = [];
-      const carnet = await AsyncStorage.getItem('carnet');
       let nuevasFotos = previewUris.filter(uri => uri.startsWith('file://'));
       let fotosRemotas = previewUris.filter(uri => uri.startsWith('http://') || uri.startsWith('https://'));
       // Si no hay nuevas fotos, conservar las existentes
@@ -135,40 +133,27 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
           const uri = nuevasFotos[i];
           const fileName = uri.split('/').pop();
           const fileType = fileName.split('.').pop();
-          const filePath = `${carnet}/productos/${Date.now()}_${i}_${fileName}`;
-          const base64 = await FileSystem.readAsStringAsync(uri, {
-            encoding: 'base64',
-          });
-          const fileBuffer = Buffer.from(base64, 'base64');
-          const { data, error: uploadError } = await supabase.storage
-            .from('fotos-productos')
-            .upload(filePath, fileBuffer, {
-              contentType: `image/${fileType}`,
-              upsert: true,
+          try {
+            const url = await uploadImage({
+              uri,
+              name: `${Date.now()}_${i}_${fileName || 'producto.jpg'}`,
+              type: `image/${fileType || 'jpeg'}`,
             });
-          if (uploadError) {
-            Alert.alert('Error al subir imagen', uploadError.message || 'No se pudo subir la imagen');
-            console.error('Error al subir imagen:', uploadError);
+            fotoUrlArr.push(url);
+          } catch (e) {
+            Alert.alert('Error al subir imagen', e?.message || 'No se pudo subir la imagen');
             setSubiendo(false);
             return;
           }
-          const { data: publicData } = supabase
-            .storage
-            .from('fotos-productos')
-            .getPublicUrl(filePath);
-          fotoUrlArr.push(publicData.publicUrl + `?t=${Date.now()}`);
         }
         // Si también hay fotos remotas, las agregamos
         fotoUrlArr = [...fotoUrlArr, ...fotosRemotas];
       }
       let error;
       if (modo === 'editar' && producto?.id) {
-        // Actualizar producto existente
-        const { error: updateError } = await supabase
-          .from('productos')
-          .update({
-            nombre: nombre,
-            usuario_carnet: producto.usuario_carnet,
+        try {
+          await updateProduct(producto.id, {
+            nombre,
             nombre_vendedor: nombreVendedor,
             telefono: telefonoFormateado,
             mensaje_whatsapp: mensajePredeterminado,
@@ -177,17 +162,14 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
             descripcion,
             foto_url: fotoUrlArr,
             ...(horaGuardar ? { hora_inicio_venta: horaGuardar } : {}),
-          })
-          .eq('id', producto.id);
-        error = updateError;
+          });
+        } catch (e) {
+          error = e;
+        }
       } else {
-        // Publicar nuevo producto
-        const carnet = await AsyncStorage.getItem('carnet');
-        const { error: insertError } = await supabase
-          .from('productos')
-          .insert([{
-            nombre: nombre,
-            usuario_carnet: carnet,
+        try {
+          await createProduct({
+            nombre,
             nombre_vendedor: nombreVendedor,
             telefono: telefonoFormateado,
             mensaje_whatsapp: mensajePredeterminado,
@@ -196,8 +178,10 @@ export default function ProductoForm({ onProductoPublicado, onCancelar, producto
             descripcion,
             foto_url: fotoUrlArr,
             ...(horaGuardar ? { hora_inicio_venta: horaGuardar } : {}),
-          }]);
-        error = insertError;
+          });
+        } catch (e) {
+          error = e;
+        }
       }
       if (error) {
         Alert.alert('Error al guardar producto', error.message || 'No se pudo guardar el producto');

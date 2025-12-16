@@ -3,10 +3,9 @@ import { View, Text, Button, FlatList, TextInput, StyleSheet, TouchableOpacity, 
 import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
-import { supabase } from '../../Supabase/supabaseClient';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 const { width } = Dimensions.get('window');
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { listPosts } from '../../src/services/posts';
 
 // Añadir imports para tema y gradiente
 import { LinearGradient } from 'expo-linear-gradient';
@@ -54,71 +53,29 @@ export default function HomeScreen({ onLogout, navigation }) {
 
   // Video prefetch is handled inside FeedItem now
 
-  // Helper: mapear fila de publicaciones a modelo para el feed con datos de usuario
-  const mapPublicationToPost = useCallback(async (pub) => {
-    let userName = 'Usuario';
-    let userAvatar = null;
-    if (pub?.carnet_usuario) {
-      const { data: userData, error: userError } = await supabase
-        .from('usuarios')
-        .select('nombre, foto_perfil')
-        .eq('carnet', pub.carnet_usuario)
-        .single();
-      if (!userError && userData) {
-        userName = userData.nombre || userName;
-        userAvatar = userData.foto_perfil || null;
-      }
-    }
-    // Parsear etiquetas de forma segura
-    let etiquetas = [];
-    try {
-      if (pub.etiquetas && typeof pub.etiquetas === 'string') {
-        // Si comienza con '[', es JSON array
-        if (pub.etiquetas.startsWith('[')) {
-          etiquetas = JSON.parse(pub.etiquetas);
-        } else {
-          // Si no, asumimos que está separado por comas
-          etiquetas = pub.etiquetas.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-        }
-      } else if (Array.isArray(pub.etiquetas)) {
-        etiquetas = pub.etiquetas;
-      }
-    } catch (error) {
-      console.warn('Error parsing etiquetas for post', pub.id, error);
-      // Como fallback, tratar como string separado por comas
-      if (pub.etiquetas && typeof pub.etiquetas === 'string') {
-        etiquetas = pub.etiquetas.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-      } else {
-        etiquetas = [];
-      }
-    }
-
-    return {
-      id: pub.id,
-      text: pub.titulo,
-      mediaUrl: pub.archivo_url,
-      mediaType: pub.contenido,
-      fecha: pub.fecha_publicacion,
-      userId: pub.carnet_usuario,
-      userName,
-      userAvatar,
-      etiquetas,
-    };
-  }, []);
-
   const fetchPostsFromDB = useCallback(async (retryCount = 0) => {
     try {
-      const { data, error } = await supabase
-        .from('publicaciones')
-        .select('*')
-        .order('fecha_publicacion', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      const postsWithUser = await Promise.all(data.map(mapPublicationToPost));
-      setPosts(postsWithUser);
+      const data = await listPosts();
+      const mapped = (data || []).map((p) => {
+        const etiquetas = Array.isArray(p.etiquetas)
+          ? p.etiquetas
+          : typeof p.etiquetas === 'string'
+          ? p.etiquetas.split(',').map(t => t.trim()).filter(Boolean)
+          : [];
+        const user = p.user || null;
+        return {
+          id: p.id,
+          text: p.titulo,
+          mediaUrl: p.archivo_url,
+          mediaType: p.contenido,
+          fecha: p.fecha_publicacion,
+          userId: p.carnet_usuario || user?.carnet,
+          userName: user?.nombre || 'Usuario',
+          userAvatar: user?.foto_perfil || null,
+          etiquetas,
+        };
+      });
+      setPosts(mapped);
     } catch (error) {
       console.error('Error al obtener publicaciones:', error);
       
@@ -130,7 +87,7 @@ export default function HomeScreen({ onLogout, navigation }) {
         }, 2000 * (retryCount + 1)); // Delay incremental: 2s, 4s, 6s
       }
     }
-  }, [mapPublicationToPost]);
+  }, []);
 
   // Función para pull-to-refresh
   const onRefresh = useCallback(async () => {
@@ -170,35 +127,7 @@ export default function HomeScreen({ onLogout, navigation }) {
     }
   }, [mostrarFiltros]);
 
-  // Suscripción en tiempo real a publicaciones (insert/update/delete)
-  useEffect(() => {
-    const channel = supabase
-      .channel('publicaciones-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'publicaciones' }, async (payload) => {
-        try {
-          if (payload.eventType === 'DELETE') {
-            const delId = payload.old?.id;
-            setPosts((prev) => prev.filter((p) => p.id !== delId));
-            return;
-          }
-          const pub = payload.new;
-          const post = await mapPublicationToPost(pub);
-          setPosts((prev) => {
-            const others = prev.filter((p) => p.id !== post.id);
-            const next = [post, ...others];
-            next.sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
-            return next;
-          });
-        } catch (e) {
-          // En caso de fallo, recargar lista completa como fallback
-          fetchPostsFromDB();
-        }
-      })
-      .subscribe();
-    return () => {
-      try { supabase.removeChannel(channel); } catch {}
-    };
-  }, [mapPublicationToPost, fetchPostsFromDB]);
+  // Realtime eliminado: el backend debe exponer cambios vía API/polling si se requiere.
 
   // Configurar modo de audio para evitar que siga activo en background
   useEffect(() => {

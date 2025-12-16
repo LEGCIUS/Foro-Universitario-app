@@ -17,7 +17,8 @@ import { Video } from 'expo-av';
 import PublicationModal from '../publications/PublicationModal';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../contexts/ThemeContext';
-import { supabase } from '../../Supabase/supabaseClient';
+import { getUserByCarnet } from '../../src/services/users';
+import { listPosts } from '../../src/services/posts';
 
 const { width, height } = Dimensions.get('window');
 
@@ -163,17 +164,7 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
       }
 
       // Cargar información completa del usuario
-      const { data, error } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('carnet', usuario.carnet)
-        .single();
-
-      if (error) {
-        console.error('Error al cargar información del usuario:', error);
-        return;
-      }
-
+      const data = await getUserByCarnet(usuario.carnet);
       setUsuarioCompleto(data || usuario);
     } catch (error) {
       console.error('Error inesperado al cargar información del usuario:', error);
@@ -187,19 +178,13 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
       if (!usuarioParaConsulta?.carnet) {
         return;
       }
-      
-      const { data, error } = await supabase
-        .from('publicaciones')
-        .select('*')
-        .eq('carnet_usuario', usuarioParaConsulta.carnet)
-        .order('fecha_publicacion', { ascending: false })
-        .limit(20);
 
-      if (error) {
-        throw error;
-      }
-
-      setPublicaciones(data || []);
+      const all = await listPosts();
+      const filtered = (all || [])
+        .filter((p) => String(p?.carnet_usuario) === String(usuarioParaConsulta.carnet))
+        .sort((a, b) => new Date(b?.fecha_publicacion || 0) - new Date(a?.fecha_publicacion || 0))
+        .slice(0, 20);
+      setPublicaciones(filtered);
     } catch (error) {
       console.error('Error al cargar publicaciones:', error);
       
@@ -217,17 +202,9 @@ const PerfilUsuarioScreen = ({ route, navigation }) => {
     try {
       const usuarioParaConsulta = usuarioCompleto || usuario;
       if (!usuarioParaConsulta?.carnet) return;
-      
-      // Contar publicaciones
-      const { count: totalPubs, error: errorPubs } = await supabase
-        .from('publicaciones')
-        .select('*', { count: 'exact', head: true })
-        .eq('carnet_usuario', usuarioParaConsulta.carnet);
 
-      if (errorPubs) {
-        console.error('Error al contar publicaciones:', errorPubs);
-      }
-
+      const all = await listPosts().catch(() => []);
+      const totalPubs = (all || []).filter((p) => String(p?.carnet_usuario) === String(usuarioParaConsulta.carnet)).length;
       setEstadisticas({
         totalPublicaciones: totalPubs || 0,
         totalMeGusta: 0, // Por ahora, cuando implementes likes puedes agregarlo

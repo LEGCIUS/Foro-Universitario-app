@@ -2,9 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator,Modal,Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
-import { supabase } from '../../Supabase/supabaseClient';
 import { useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getMe, searchUsers } from '../../src/services/users';
 
 export default function BuscadorUsuarios({ 
   visible, 
@@ -32,20 +31,8 @@ export default function BuscadorUsuarios({
     setBusquedaRealizada(true);
 
     try {
-      // Buscar por nombre o carnet
-      const { data, error } = await supabase
-        .from('usuarios')
-        .select('carnet, nombre, foto_perfil, correo, carrera, biografia, fecha_nacimiento')
-        .or(`nombre.ilike.%${termino}%,carnet.ilike.%${termino}%`)
-        .limit(20);
-
-      if (error) {
-        console.error('Error al buscar usuarios:', error);
-        Alert.alert('Error', 'No se pudo realizar la búsqueda');
-        return;
-      }
-
-      setUsuarios(data || []);
+      const data = await searchUsers(termino);
+      setUsuarios((data || []).slice(0, 20));
     } catch (err) {
       console.error('Error inesperado:', err);
       Alert.alert('Error', 'Ocurrió un error inesperado');
@@ -81,8 +68,8 @@ export default function BuscadorUsuarios({
 
         // Si el seleccionado soy yo, ir a mi Perfil en MainTabs; si no, a ViewUserProfile
         try {
-          const me = await AsyncStorage.getItem('carnet');
-          if (me && me === item.carnet) {
+          const me = await getMe();
+          if (me?.carnet && me.carnet === item.carnet) {
             navigation.navigate('MainTabs', { screen: 'Perfil' });
           } else {
             navigation.navigate('ViewUserProfile', { userId: item.carnet });

@@ -7,9 +7,12 @@ import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import Etiquetas from '../components/Etiquetas';
 import CommentsModal from '../components/CommentsModal';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../../Supabase/supabaseClient';
 import { useNavigation } from '@react-navigation/native';
+import { ApiError } from '../../src/services/api';
+import { getMe, getUserByCarnet } from '../../src/services/users';
+import { createComment, deleteComment, listComments } from '../../src/services/comments';
+import { getPostLikeState, likePost, unlikePost } from '../../src/services/likes';
+import { deletePost, reportPost } from '../../src/services/posts';
 
 const { width } = Dimensions.get('window');
 
@@ -105,27 +108,14 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     if (isVisible && item.id) {
       (async () => {
         try {
-          const c = await AsyncStorage.getItem('carnet');
-          if (c) {
-            setCarnet(c);
-            // Verificar si ya di like
-            const { data: mine } = await supabase
-              .from('likes')
-              .select('id')
-              .eq('publicacion_id', item.id)
-              .eq('usuario_carnet', c)
-              .maybeSingle();
-            setLiked(!!mine);
-          }
-          // Traer contador actualizado
-          const { data: pubData } = await supabase
-            .from('publicaciones')
-            .select('likes_count, comentarios_count')
-            .eq('id', item.id)
-            .maybeSingle();
-          if (pubData) {
-            if (typeof pubData.likes_count === 'number') setLikeCount(pubData.likes_count);
-            if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
+          const [meRes, likeState] = await Promise.all([
+            getMe().catch(() => null),
+            getPostLikeState(item.id).catch(() => null),
+          ]);
+          if (meRes?.carnet) setCarnet(meRes.carnet);
+          if (likeState) {
+            setLiked(!!likeState.liked);
+            setLikeCount(typeof likeState.count === 'number' ? likeState.count : 0);
           }
         } catch (e) {
           console.warn('Error loading like state:', e);
@@ -138,7 +128,14 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
   const handleNavigateToProfile = async () => {
     try {
       closeMenu(); // Cerrar menú si está abierto
-      const currentUserCarnet = await AsyncStorage.getItem('carnet');
+      let currentUserCarnet = carnet;
+      if (!currentUserCarnet) {
+        const me = await getMe().catch(() => null);
+        if (me?.carnet) {
+          currentUserCarnet = me.carnet;
+          setCarnet(me.carnet);
+        }
+      }
       
       // Si es el usuario actual, navegar a la pestaña Perfil
       if (currentUserCarnet === item.userId) {
@@ -215,126 +212,73 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     try {
       const postId = item.id;
       if (!postId) return;
-      
-      let c = carnet;
-      if (!c) {
-        c = await AsyncStorage.getItem('carnet');
-        if (!c) return;
-        setCarnet(c);
-      }
 
       if (liked) {
-        // Optimistic unlike
         setLiked(false);
         setLikeCount((prev) => Math.max(0, prev - 1));
-        const { error } = await supabase
-          .from('likes')
-          .delete()
-          .eq('publicacion_id', postId)
-          .eq('usuario_carnet', c);
-        if (error) {
-          console.error('Error DELETE like:', error);
-          setLiked(true);
-          setLikeCount((prev) => prev + 1);
-        }
+        const state = await unlikePost(postId);
+        setLiked(!!state.liked);
+        setLikeCount(state.count);
       } else {
-        // Optimistic like
         setLiked(true);
         setLikeCount((prev) => prev + 1);
-        const { error } = await supabase
-          .from('likes')
-          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true })
-          .select('id')
-          .maybeSingle();
-        if (error) {
-          console.error('Error UPSERT like:', error);
-          setLiked(false);
-          setLikeCount((prev) => Math.max(0, prev - 1));
-        }
+        const state = await likePost(postId);
+        setLiked(!!state.liked);
+        setLikeCount(state.count);
       }
-
-      // Re-sync from DB
-      const { data: pubData } = await supabase
-        .from('publicaciones')
-        .select('likes_count, comentarios_count')
-        .eq('id', postId)
-        .maybeSingle();
-      if (pubData) {
-        if (typeof pubData.likes_count === 'number') setLikeCount(pubData.likes_count);
-        if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
-      }
-
-      const { data: mine } = await supabase
-        .from('likes')
-        .select('id')
-        .eq('publicacion_id', postId)
-        .eq('usuario_carnet', c)
-        .maybeSingle();
-      setLiked(!!mine);
     } catch (err) {
       console.error('handleLike error:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        try { Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.'); } catch {}
+      }
+      try {
+        const state = await getPostLikeState(item.id);
+        setLiked(!!state.liked);
+        setLikeCount(state.count);
+      } catch (_) {}
     }
   };
 
   const openComments = async () => {
     try {
       if (!item?.id) return;
-      const { data, error } = await supabase
-        .from('comentarios')
-        .select('id, contenido, usuario_carnet, created_at, likes_count')
-        .eq('publicacion_id', item.id)
-        .order('created_at', { ascending: true })
-        .limit(50);
-      if (!error) {
-        const rows = data || [];
-        const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
-        const cache = profileCacheRef.current;
-        const missing = uniqueCarnets.filter(c => !cache.has(c));
-        if (missing.length > 0) {
-          try {
-            const { data: usuariosData, error: usuariosErr } = await supabase
-              .from('usuarios')
-              .select('carnet, nombre, apellido, foto_perfil')
-              .in('carnet', missing);
-            if (!usuariosErr && Array.isArray(usuariosData)) {
-              usuariosData.forEach(u => {
-                cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
-              });
-            }
-          } catch (_) {}
-        }
+      const rows = await listComments(item.id);
 
-        const enriched = rows.map(r => {
-          const prof = cache.get(r.usuario_carnet);
-          const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
-          const avatarUrl = prof?.foto_perfil || null;
-          return { 
-            id: r.id,
-            usuario: r.usuario_carnet, 
-            displayName, 
-            avatarUrl, 
-            texto: r.contenido, 
-            created_at: r.created_at,
-            likes_count: r.likes_count || 0
-          };
+      const cache = profileCacheRef.current;
+      const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+      const missing = uniqueCarnets.filter(c => !cache.has(c));
+      if (missing.length > 0) {
+        const profs = await Promise.allSettled(missing.map((c) => getUserByCarnet(String(c))));
+        profs.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const c = missing[idx];
+          cache.set(String(c), {
+            nombre: r.value?.nombre,
+            apellido: r.value?.apellido,
+            foto_perfil: r.value?.foto_perfil,
+          });
         });
-        setComments(enriched);
-        // Sync comment count (fallback to loaded rows if DB count absent)
-        try {
-          const { data: pubRow, error: pubErr } = await supabase
-            .from('publicaciones')
-            .select('comentarios_count')
-            .eq('id', item.id)
-            .maybeSingle();
-          if (!pubErr && pubRow && typeof pubRow.comentarios_count === 'number') {
-            setCommentCount(pubRow.comentarios_count);
-          } else {
-            setCommentCount(rows.length);
-          }
-        } catch (_) {
-          setCommentCount(rows.length);
-        }
       }
+
+      const enriched = rows.map(r => {
+        const fromUser = r.user
+          ? { nombre: r.user.nombre, apellido: r.user.apellido, foto_perfil: r.user.foto_perfil }
+          : (cache.get(String(r.usuario_carnet)) || null);
+        const displayName = fromUser ? `${fromUser.nombre || ''} ${fromUser.apellido || ''}`.trim() : r.usuario_carnet;
+        const avatarUrl = fromUser?.foto_perfil || null;
+        return {
+          id: r.id,
+          usuario: r.usuario_carnet,
+          displayName: displayName || r.usuario_carnet,
+          avatarUrl,
+          texto: r.texto,
+          created_at: r.created_at,
+          likes_count: r.likes_count || 0,
+        };
+      });
+
+      setComments(enriched);
+      setCommentCount(enriched.length);
       setCommentModalVisible(true);
     } catch {}
   };
@@ -343,15 +287,9 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     try {
       const text = newComment.trim();
       if (!text || !item?.id) return;
-      let c = carnet || (await AsyncStorage.getItem('carnet'));
-      if (!c) return;
-      const { error } = await supabase
-        .from('comentarios')
-        .insert({ publicacion_id: item.id, usuario_carnet: c, contenido: text });
-      if (!error) {
-        setNewComment('');
-        await openComments();
-      }
+      await createComment(item.id, text);
+      setNewComment('');
+      await openComments();
     } catch {}
   };
 
@@ -363,15 +301,9 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
   const confirmDeleteComment = async () => {
     try {
       if (!commentToDelete || !item?.id) return;
-      
-      const { error } = await supabase
-        .from('comentarios')
-        .delete()
-        .eq('publicacion_id', item.id)
-        .eq('usuario_carnet', commentToDelete.usuario)
-        .eq('contenido', commentToDelete.texto)
-        .eq('created_at', commentToDelete.created_at);
-      if (error) throw error;
+
+      if (!commentToDelete.id) throw new Error('Comentario sin id');
+      await deleteComment(commentToDelete.id);
       await openComments();
       setDeleteCommentModalVisible(false);
       setCommentToDelete(null);
@@ -448,23 +380,6 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
   // Si ya fue eliminada, no renderizar
   if (deleted) return null;
 
-  // Helper para extraer la ruta en el bucket desde una URL pública de supabase storage
-  const extractMultimediaPath = (publicUrl) => {
-    if (!publicUrl || typeof publicUrl !== 'string') return null;
-    try {
-      const u = new URL(publicUrl);
-      const marker = '/object/public/multimedia/';
-      const idx = u.pathname.indexOf(marker);
-      if (idx !== -1) return decodeURIComponent(u.pathname.substring(idx + marker.length));
-      const parts = publicUrl.split('?')[0].split('/multimedia/');
-      if (parts[1]) return decodeURIComponent(parts[1]);
-    } catch (_) {
-      const parts = (publicUrl || '').split('?')[0].split('/multimedia/');
-      if (parts[1]) return decodeURIComponent(parts[1]);
-    }
-    return null;
-  };
-
   const handleDeletePost = () => {
     closeMenu();
     if (!isOwner) return; // seguridad
@@ -475,19 +390,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
     try {
       if (!item?.id) return;
       setDeletingPost(true);
-      // 1) Eliminar archivo del storage si aplica
-      const storagePath = extractMultimediaPath(item.mediaUrl || item.archivo_url);
-      if (storagePath) {
-        try { await supabase.storage.from('multimedia').remove([storagePath]); } catch (_) {}
-      }
-      // 2) Eliminar fila en BD, asegurando que sea mía
-      const c = carnet || (await AsyncStorage.getItem('carnet'));
-      const { error } = await supabase
-        .from('publicaciones')
-        .delete()
-        .eq('id', item.id)
-        .eq('carnet_usuario', c);
-      if (error) throw error;
+      await deletePost(item.id);
       // 3) Ocultar del feed
       setDeletingPost(false);
       setDeletePostModalVisible(false);
@@ -758,24 +661,18 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
               <TouchableOpacity
                 onPress={async () => {
                   try {
-                    const carnet = await AsyncStorage.getItem('carnet');
-                    if (!carnet) throw new Error('No se encontró el usuario actual');
-                    const motivo = reportReason;
-                    const payload = {
-                      publicacion_id: item.id,
-                      carnet_reporta: carnet,
-                      carnet_publica: item.userId || null,
-                      motivo,
-                      detalle: reportText.trim() || null,
-                      created_at: new Date().toISOString(),
-                    };
-                    const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
-                    if (error) throw error;
+                    await reportPost(item.id, {
+                      motivo: reportReason,
+                      detalle: reportText.trim() || undefined,
+                    });
                     setReportModalVisible(false);
                     setReportText('');
                     setReportReason('Contenido inapropiado');
                   } catch (err) {
                     // Optional: show toast
+                    if (err instanceof ApiError && err.status === 401) {
+                      try { Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para reportar.'); } catch {}
+                    }
                   }
                 }}
                 disabled={!reportReason}
@@ -823,10 +720,7 @@ export default function FeedItem({ item, isVisible, isScreenFocused, closeSignal
         onRequestClose={() => setCommentModalVisible(false)}
         meCarnet={carnet}
         onPressAvatar={async (carnetUser) => {
-          let me = carnet;
-          if (!me) {
-            try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
-          }
+          const me = carnet;
           setCommentModalVisible(false);
           if (me && me === carnetUser) {
             navigation.navigate('MainTabs', { screen: 'Perfil' });

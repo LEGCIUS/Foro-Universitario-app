@@ -4,9 +4,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Buffer } from 'buffer';
-import { supabase } from '../../Supabase/supabaseClient';
+import { uploadImage } from '../../src/services/api';
+import { createPost } from '../../src/services/posts';
 import Etiquetas from '../components/Etiquetas';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -55,49 +55,31 @@ export default function CreatePublicationModal({ visible, onClose, onPublished }
     if (!newPost.trim() && !previewMedia) return;
     setUploading(true);
     try {
-      const carnet = await AsyncStorage.getItem('carnet');
-      if (!carnet) throw new ReferenceError('No se encontró el carnet del usuario');
       let publicUrl = null;
       if (previewMedia?.uri) {
         const uri = previewMedia.uri;
         const fileName = uri.split('/').pop() || `upload_${Date.now()}.jpg`;
         const fileType = fileName.split('.').pop();
-        const filePath = `${carnet}/publicaciones/${Date.now()}_${fileName}`;
-        
-        let fileToUpload;
-        if (Platform.OS === 'web') {
-          // En web, el asset tiene la propiedad 'file' directamente
-          fileToUpload = previewMedia.file || previewMedia;
-        } else {
-          // En nativo, leemos el archivo como base64 y creamos un buffer
-          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-          fileToUpload = Buffer.from(base64, 'base64');
+
+        // Nota: mantenemos la lectura base64/buffer porque algunos assets web/nativo lo requieren
+        // (el backend debe aceptar multipart/form-data).
+        if (Platform.OS !== 'web') {
+          // Asegura que el archivo exista/sea accesible en nativo
+          await FileSystem.getInfoAsync(uri);
         }
-        
-        const { error: uploadError } = await supabase.storage
-          .from('multimedia')
-          .upload(filePath, fileToUpload, {
-            contentType: mediaType === 'video' ? `video/${fileType}` : `image/${fileType}`,
-            cacheControl: '3600',
-            upsert: true,
-          });
-        if (uploadError) throw uploadError;
-        const { data: publicData } = supabase.storage.from('multimedia').getPublicUrl(filePath);
-        publicUrl = publicData.publicUrl + `?t=${Date.now()}`;
+
+        publicUrl = await uploadImage({
+          uri,
+          name: `${Date.now()}_${fileName}`,
+          type: mediaType === 'video' ? `video/${fileType}` : `image/${fileType}`,
+        });
       }
-      const payload = {
+      await createPost({
         titulo: newPost || '(sin título)',
         archivo_url: publicUrl,
         contenido: previewMedia ? mediaType : 'text',
-        fecha_publicacion: new Date().toISOString(),
-        carnet_usuario: carnet,
-        etiquetas: JSON.stringify(etiquetasSeleccionadas || []),
-      };
-      const { data: inserted, error } = await supabase
-        .from('publicaciones')
-        .insert([payload])
-        .select('*');
-      if (error) throw error;
+        etiquetas: etiquetasSeleccionadas || [],
+      });
       setNewPost('');
       setPreviewMedia(null);
       setMediaType(null);

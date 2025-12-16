@@ -3,10 +3,12 @@ import { View, Text, Image, TouchableOpacity, StyleSheet, FlatList, TextInput, S
 import { Video } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import CommentsModal from '../components/CommentsModal';
+import { ApiError } from '../../src/services/api';
+import { getMe, getUserByCarnet } from '../../src/services/users';
+import { createComment, deleteComment, listComments } from '../../src/services/comments';
+import { getPostLikeState, likePost, unlikePost } from '../../src/services/likes';
 
 const { width, height } = Dimensions.get('window');
 
@@ -57,51 +59,25 @@ export default function PublicationsViewer({ route, navigation }) {
       const post = posts[currentIndex] || {};
       const postId = post.id || post.publicacion_id || post.uuid;
       if (!postId) return;
-      let c = carnet;
-      if (!c) {
-        c = await AsyncStorage.getItem('carnet');
-        if (!c) {
-          Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
-          return;
-        }
-        setCarnet(c);
-      }
-
-      console.log('handleLike', { postId, carnet: c });
-
       if (likedByMe) {
-        // Optimistic
         setLikedByMe(false);
         setLikes((prev) => Math.max(0, prev - 1));
-        const { error: delErr } = await supabase
-          .from('likes')
-          .delete()
-          .eq('publicacion_id', postId)
-          .eq('usuario_carnet', c);
-        if (delErr) {
-          console.error('Error DELETE like supabase:', delErr);
-          Alert.alert('Error al quitar like', delErr.message || '');
-        }
+        const state = await unlikePost(postId);
+        setLikedByMe(!!state.liked);
+        setLikes(state.count);
       } else {
         setLikedByMe(true);
         setLikes((prev) => prev + 1);
-        // Intentar UPSERT para evitar duplicados silenciosos
-        const { data: insData, error } = await supabase
-          .from('likes')
-          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true })
-          .select('id')
-          .maybeSingle();
-        if (error) {
-          console.error('Error UPSERT like supabase:', error);
-          Alert.alert('Error al dar like', error.message || '');
-        } else {
-          console.log('UPSERT like ok', insData);
-        }
+        const state = await likePost(postId);
+        setLikedByMe(!!state.liked);
+        setLikes(state.count);
       }
-      // Re-sincronizar con valor definitivo (trigger debe actualizar likes_count)
-      await fetchLikes(postId);
     } catch (err) {
       console.error('Error al togglear like:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
+        return;
+      }
       await refreshCurrentPostStates();
     }
   };
@@ -113,23 +89,15 @@ export default function PublicationsViewer({ route, navigation }) {
       const post = posts[currentIndex] || {};
       const postId = post.id || post.publicacion_id || post.uuid;
       if (!postId) return;
-      let c = carnet;
-      if (!c) {
-        c = await AsyncStorage.getItem('carnet');
-        if (!c) {
-          Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para comentar.');
-          return;
-        }
-        setCarnet(c);
-      }
-      const { error } = await supabase
-        .from('comentarios')
-        .insert({ publicacion_id: postId, usuario_carnet: c, contenido: text });
-      if (error) throw error;
+      await createComment(postId, text);
       setNewComment('');
       await fetchComments(postId);
     } catch (err) {
       console.error('Error al comentar:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para comentar.');
+        return;
+      }
       Alert.alert('Error', err.message || 'No se pudo publicar el comentario');
     }
   };
@@ -145,15 +113,9 @@ export default function PublicationsViewer({ route, navigation }) {
       const post = posts[currentIndex] || {};
       const postId = post.id || post.publicacion_id || post.uuid;
       if (!postId) return;
-      
-      const { error } = await supabase
-        .from('comentarios')
-        .delete()
-        .eq('publicacion_id', postId)
-        .eq('usuario_carnet', commentToDelete.usuario)
-        .eq('contenido', commentToDelete.texto)
-        .eq('created_at', commentToDelete.created_at);
-      if (error) throw error;
+
+      if (!commentToDelete.id) throw new Error('Comentario sin id');
+      await deleteComment(commentToDelete.id);
       await fetchComments(postId);
       setDeleteCommentModalVisible(false);
       setCommentToDelete(null);
@@ -219,31 +181,9 @@ export default function PublicationsViewer({ route, navigation }) {
 
   const fetchLikes = async (postId) => {
     try {
-      const c = carnet || (await AsyncStorage.getItem('carnet'));
-      if (c && !carnet) setCarnet(c);
-
-      // 1) Traer likes_count desde publicaciones (evita contar filas)
-      const { data: pubData, error: pubErr } = await supabase
-        .from('publicaciones')
-        .select('likes_count')
-        .eq('id', postId)
-        .maybeSingle();
-      if (!pubErr && pubData && typeof pubData.likes_count === 'number') {
-        setLikes(pubData.likes_count);
-      }
-
-      // 2) Saber si YO ya di like
-      if (c) {
-        const { data: mine, error: mineErr } = await supabase
-          .from('likes')
-          .select('id')
-          .eq('publicacion_id', postId)
-          .eq('usuario_carnet', c)
-          .maybeSingle();
-        if (!mineErr) setLikedByMe(!!mine);
-      } else {
-        setLikedByMe(false);
-      }
+      const state = await getPostLikeState(postId);
+      setLikes(state.count);
+      setLikedByMe(!!state.liked);
     } catch (e) {
       console.warn('fetchLikes error', e);
     }
@@ -251,55 +191,42 @@ export default function PublicationsViewer({ route, navigation }) {
 
   const fetchComments = async (postId) => {
     try {
-      const [commentsRes, pubRes] = await Promise.all([
-        supabase
-          .from('comentarios')
-          .select('contenido, usuario_carnet, created_at')
-          .eq('publicacion_id', postId)
-          .order('created_at', { ascending: true })
-          .limit(50),
-        supabase
-          .from('publicaciones')
-          .select('comentarios_count')
-          .eq('id', postId)
-          .maybeSingle(),
-      ]);
-      if (commentsRes.error) throw commentsRes.error;
-      const rows = commentsRes.data || [];
-
-      // Build unique carnet list and fetch missing profiles (cache-aware)
-      const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+      const rows = await listComments(postId);
       const cache = profileCacheRef.current;
+      const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
       const missing = uniqueCarnets.filter(c => !cache.has(c));
       if (missing.length > 0) {
-        try {
-          const { data: usuariosData, error: usuariosErr } = await supabase
-            .from('usuarios')
-            .select('carnet, nombre, apellido, foto_perfil')
-            .in('carnet', missing);
-          if (!usuariosErr && Array.isArray(usuariosData)) {
-            usuariosData.forEach(u => {
-              cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
-            });
-          }
-        } catch (_) {
-          // ignore profile fetch errors individually
-        }
+        const profs = await Promise.allSettled(missing.map((c) => getUserByCarnet(String(c))));
+        profs.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const c = missing[idx];
+          cache.set(String(c), {
+            nombre: r.value?.nombre,
+            apellido: r.value?.apellido,
+            foto_perfil: r.value?.foto_perfil,
+          });
+        });
       }
 
       const enriched = rows.map(r => {
-        const prof = cache.get(r.usuario_carnet);
-        const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
-        const avatarUrl = prof?.foto_perfil || null;
-        return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+        const fromUser = r.user
+          ? { nombre: r.user.nombre, apellido: r.user.apellido, foto_perfil: r.user.foto_perfil }
+          : (cache.get(String(r.usuario_carnet)) || null);
+        const displayName = fromUser ? `${fromUser.nombre || ''} ${fromUser.apellido || ''}`.trim() : r.usuario_carnet;
+        const avatarUrl = fromUser?.foto_perfil || null;
+        return {
+          id: r.id,
+          usuario: r.usuario_carnet,
+          displayName: displayName || r.usuario_carnet,
+          avatarUrl,
+          texto: r.texto,
+          created_at: r.created_at,
+          likes_count: r.likes_count || 0,
+        };
       });
 
       setComments(enriched);
-      if (!pubRes.error && pubRes.data && typeof pubRes.data.comentarios_count === 'number') {
-        setCommentCount(pubRes.data.comentarios_count);
-      } else {
-        setCommentCount((commentsRes.data || []).length);
-      }
+      setCommentCount(enriched.length);
     } catch (e) {
       console.warn('fetchComments error', e);
     }
@@ -316,8 +243,8 @@ export default function PublicationsViewer({ route, navigation }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const c = await AsyncStorage.getItem('carnet');
-        if (c) setCarnet(c);
+        const me = await getMe().catch(() => null);
+        if (me?.carnet) setCarnet(me.carnet);
         const post = posts[currentIndex] || posts[0] || {};
         const postId = post.id || post.publicacion_id || post.uuid;
         if (postId) await Promise.all([fetchLikes(postId), fetchComments(postId)]);
@@ -397,10 +324,7 @@ export default function PublicationsViewer({ route, navigation }) {
         onRequestClose={() => setShowCommentModal(false)}
         meCarnet={carnet}
         onPressAvatar={async (carnetUser) => {
-          let me = carnet;
-          if (!me) {
-            try { me = await AsyncStorage.getItem('carnet'); setCarnet(me); } catch (_) {}
-          }
+          const me = carnet;
           setShowCommentModal(false);
           if (me && me === carnetUser) {
             // Ir al tab de perfil dentro de MainTabs

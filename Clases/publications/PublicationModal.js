@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Modal, ScrollView, Dimensions, Share, Pressable, TextInput } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../../Supabase/supabaseClient';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 

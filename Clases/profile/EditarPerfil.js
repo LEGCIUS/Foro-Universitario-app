@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, Modal, FlatList } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { Picker } from '@react-native-picker/picker';
+import { getMe, updateMeProfile } from '../../src/services/users';
 
 export default function EditarPerfil({ navigation, route }) {
   const { darkMode } = useTheme();
@@ -84,19 +83,14 @@ export default function EditarPerfil({ navigation, route }) {
 
   const fetchUsuario = async () => {
     setLoading(true);
-    const carnet = await AsyncStorage.getItem('carnet');
-    if (!carnet) {
-      setLoading(false);
-      return;
-    }
-    const { data, error } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('carnet', carnet)
-      .single();
-    if (!error && data) {
-      setUsuario(data);
-      cargarDatos(data);
+    try {
+      const data = await getMe();
+      if (data) {
+        setUsuario(data);
+        cargarDatos(data);
+      }
+    } catch (_) {
+      // silencioso
     }
     setLoading(false);
   };
@@ -153,15 +147,7 @@ export default function EditarPerfil({ navigation, route }) {
 
       console.log('📝 Guardando perfil:', updates);
 
-      const { data, error } = await supabase
-        .from('usuarios')
-        .update(updates)
-        .eq('carnet', usuario.carnet)
-        .select();
-
-      console.log('💾 Respuesta de guardado:', { data, error });
-
-      if (error) throw error;
+      await updateMeProfile(updates);
 
       navigation.goBack();
     } catch (err) {

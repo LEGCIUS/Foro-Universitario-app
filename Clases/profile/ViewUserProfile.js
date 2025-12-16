@@ -3,18 +3,22 @@ import {View,Text,StyleSheet,ScrollView,Image,TouchableOpacity,ActivityIndicator
 import { Linking } from 'react-native';
 // styles global para uso en todos los componentes
 let styles;
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { useIsFocused } from '@react-navigation/native';
 import { CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import { supabase } from '../../Supabase/supabaseClient';
 import CommentsModal from '../components/CommentsModal';
 import Etiquetas from '../components/Etiquetas';
 import PublicationModal from '../publications/PublicationModal';
 import CustomAlert from '../components/CustomAlert';
+import { ApiError } from '../../src/services/api';
+import { getMe, getUserByCarnet } from '../../src/services/users';
+import { listPosts, reportPost } from '../../src/services/posts';
+import { getPostLikeState, likePost, unlikePost } from '../../src/services/likes';
+import { createComment, deleteComment, listComments } from '../../src/services/comments';
+import { listProducts, reportProduct } from '../../src/services/products';
 // Eliminado zoom avanzado: usamos solo Image ampliada
 
 const { width, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -83,8 +87,12 @@ const ViewUserProfile = ({ route, navigation }) => {
   // Cargar mi carnet al montar
   useEffect(() => {
     const fetchMyCarnet = async () => {
-      const c = await AsyncStorage.getItem('carnet');
-      setMiCarnet(c);
+      try {
+        const me = await getMe();
+        setMiCarnet(me?.carnet || null);
+      } catch (_) {
+        setMiCarnet(null);
+      }
     };
     fetchMyCarnet();
   }, []);
@@ -103,42 +111,15 @@ const ViewUserProfile = ({ route, navigation }) => {
     const loadLikesAndComments = async () => {
       try {
         const postId = selectedPost.id;
-        let c = miCarnet;
-        if (!c) {
-          c = await AsyncStorage.getItem('carnet');
-        }
+        const state = await getPostLikeState(postId);
+        setLikes(state.count);
+        setLikedByMe(!!state.liked);
 
-        // Cargar likes
-        const { data: likesData, error: likesError } = await supabase
-          .from('publicaciones')
-          .select('likes_count')
-          .eq('id', postId)
-          .maybeSingle();
-
-        if (!likesError && likesData) {
-          setLikes(likesData.likes_count || 0);
-        }
-
-        // Verificar si el usuario dio like
-        if (c) {
-          const { data: myLike } = await supabase
-            .from('likes')
-            .select('id')
-            .eq('publicacion_id', postId)
-            .eq('usuario_carnet', c)
-            .maybeSingle();
-          setLikedByMe(!!myLike);
-        }
-
-        // Cargar conteo de comentarios
-        const { data: pubData } = await supabase
-          .from('publicaciones')
-          .select('comentarios_count')
-          .eq('id', postId)
-          .maybeSingle();
-
-        if (pubData) {
-          setCommentCount(pubData.comentarios_count || 0);
+        if (typeof selectedPost?.comentarios_count === 'number') {
+          setCommentCount(selectedPost.comentarios_count);
+        } else {
+          const rows = await listComments(postId).catch(() => []);
+          setCommentCount(rows.length);
         }
       } catch (error) {
         console.error('Error al cargar likes/comentarios:', error);
@@ -167,17 +148,7 @@ const ViewUserProfile = ({ route, navigation }) => {
     try {
       if (!userId) return;
 
-      const { data, error } = await supabase
-        .from('usuarios')
-        .select('*')
-        .eq('carnet', userId)
-        .single();
-
-      if (error) {
-        console.error('Error al cargar información del usuario:', error);
-        return;
-      }
-
+      const data = await getUserByCarnet(String(userId));
       setUsuario(data);
     } catch (error) {
       console.error('Error inesperado al cargar información del usuario:', error);
@@ -187,17 +158,12 @@ const ViewUserProfile = ({ route, navigation }) => {
   const cargarPublicaciones = async (retryCount = 0) => {
     try {
       if (!userId) return;
-      
-      const { data, error } = await supabase
-        .from('publicaciones')
-        .select('*')
-        .eq('carnet_usuario', userId)
-        .order('fecha_publicacion', { ascending: false })
-        .limit(20);
 
-      if (error) {
-        throw error;
-      }
+      const all = await listPosts();
+      const data = (all || [])
+        .filter((p) => String(p?.carnet_usuario) === String(userId))
+        .sort((a, b) => new Date(b?.fecha_publicacion || 0) - new Date(a?.fecha_publicacion || 0))
+        .slice(0, 20);
 
       // Parsear etiquetas
       const mapped = (data || []).map(pub => {
@@ -236,15 +202,9 @@ const ViewUserProfile = ({ route, navigation }) => {
   const cargarEstadisticas = async () => {
     try {
       if (!userId) return;
-      
-      const { count: totalPubs, error: errorPubs } = await supabase
-        .from('publicaciones')
-        .select('*', { count: 'exact', head: true })
-        .eq('carnet_usuario', userId);
 
-      if (errorPubs) {
-        console.error('Error al contar publicaciones:', errorPubs);
-      }
+      const all = await listPosts().catch(() => []);
+      const totalPubs = (all || []).filter((p) => String(p?.carnet_usuario) === String(userId)).length;
 
       setEstadisticas({
         totalPublicaciones: totalPubs || 0,
@@ -265,106 +225,66 @@ const ViewUserProfile = ({ route, navigation }) => {
     try {
       const postId = selectedPost?.id;
       if (!postId) return;
-      let c = miCarnet;
-      if (!c) {
-        c = await AsyncStorage.getItem('carnet');
-        if (!c) return;
-      }
       if (likedByMe) {
         setLikedByMe(false);
         setLikes((prev) => Math.max(0, prev - 1));
-        const { error } = await supabase
-          .from('likes')
-          .delete()
-          .eq('publicacion_id', postId)
-          .eq('usuario_carnet', c);
-        if (error) {
-          setLikedByMe(true);
-          setLikes((prev) => prev + 1);
-        }
+        const state = await unlikePost(postId);
+        setLikedByMe(!!state.liked);
+        setLikes(state.count);
       } else {
         setLikedByMe(true);
         setLikes((prev) => prev + 1);
-        const { error } = await supabase
-          .from('likes')
-          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true });
-        if (error) {
-          setLikedByMe(false);
-          setLikes((prev) => Math.max(0, prev - 1));
-        }
+        const state = await likePost(postId);
+        setLikedByMe(!!state.liked);
+        setLikes(state.count);
       }
-      const { data: pubData } = await supabase
-        .from('publicaciones')
-        .select('likes_count, comentarios_count')
-        .eq('id', postId)
-        .maybeSingle();
-      if (pubData) {
-        if (typeof pubData.likes_count === 'number') setLikes(pubData.likes_count);
-        if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
-      }
-      const { data: mine } = await supabase
-        .from('likes')
-        .select('id')
-        .eq('publicacion_id', postId)
-        .eq('usuario_carnet', c)
-        .maybeSingle();
-      setLikedByMe(!!mine);
     } catch (err) {
       console.error('handleLike ViewUserProfile error:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
+      }
     }
   };
 
   const openComments = async () => {
     try {
       if (!selectedPost?.id) return;
-      const { data, error } = await supabase
-        .from('comentarios')
-        .select('id, contenido, usuario_carnet, created_at, likes_count')
-        .eq('publicacion_id', selectedPost.id)
-        .order('created_at', { ascending: true })
-        .limit(50);
-      if (!error) {
-        const rows = data || [];
-        const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
-        const cache = profileCacheRef.current;
-        const missing = uniqueCarnets.filter(c => !cache.has(c));
-        if (missing.length > 0) {
-          const { data: usuariosData, error: usuariosErr } = await supabase
-            .from('usuarios')
-            .select('carnet, nombre, apellido, foto_perfil')
-            .in('carnet', missing);
-          if (!usuariosErr && Array.isArray(usuariosData)) {
-            usuariosData.forEach(u => {
-              cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
-            });
-          }
-        }
-        const enriched = rows.map(r => {
-          const prof = cache.get(r.usuario_carnet);
-          const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
-          const avatarUrl = prof?.foto_perfil || null;
-          return { 
-            id: r.id,
-            usuario: r.usuario_carnet, 
-            displayName, 
-            avatarUrl, 
-            texto: r.contenido, 
-            created_at: r.created_at,
-            likes_count: r.likes_count || 0
-          };
+      const rows = await listComments(selectedPost.id);
+      const cache = profileCacheRef.current;
+      const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+      const missing = uniqueCarnets.filter(c => !cache.has(c));
+      if (missing.length > 0) {
+        const profs = await Promise.allSettled(missing.map((c) => getUserByCarnet(String(c))));
+        profs.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const c = missing[idx];
+          cache.set(String(c), {
+            nombre: r.value?.nombre,
+            apellido: r.value?.apellido,
+            foto_perfil: r.value?.foto_perfil,
+          });
         });
-        setComments(enriched);
-        const { data: pubRow } = await supabase
-          .from('publicaciones')
-          .select('comentarios_count')
-          .eq('id', selectedPost.id)
-          .maybeSingle();
-        if (pubRow && typeof pubRow.comentarios_count === 'number') {
-          setCommentCount(pubRow.comentarios_count);
-        } else {
-          setCommentCount(rows.length);
-        }
       }
+
+      const enriched = rows.map(r => {
+        const fromUser = r.user
+          ? { nombre: r.user.nombre, apellido: r.user.apellido, foto_perfil: r.user.foto_perfil }
+          : (cache.get(String(r.usuario_carnet)) || null);
+        const displayName = fromUser ? `${fromUser.nombre || ''} ${fromUser.apellido || ''}`.trim() : r.usuario_carnet;
+        const avatarUrl = fromUser?.foto_perfil || null;
+        return {
+          id: r.id,
+          usuario: r.usuario_carnet,
+          displayName: displayName || r.usuario_carnet,
+          avatarUrl,
+          texto: r.texto,
+          created_at: r.created_at,
+          likes_count: r.likes_count || 0,
+        };
+      });
+
+      setComments(enriched);
+      setCommentCount(typeof selectedPost?.comentarios_count === 'number' ? selectedPost.comentarios_count : enriched.length);
       setCommentModalVisible(true);
     } catch (e) {
       console.error('openComments ViewUserProfile error:', e);
@@ -375,15 +295,9 @@ const ViewUserProfile = ({ route, navigation }) => {
     try {
       const text = newComment.trim();
       if (!text || !selectedPost?.id) return;
-      let c = miCarnet || (await AsyncStorage.getItem('carnet'));
-      if (!c) return;
-      const { error } = await supabase
-        .from('comentarios')
-        .insert({ publicacion_id: selectedPost.id, usuario_carnet: c, contenido: text });
-      if (!error) {
-        setNewComment('');
-        await openComments();
-      }
+      await createComment(selectedPost.id, text);
+      setNewComment('');
+      await openComments();
     } catch {}
   };
 
@@ -395,14 +309,8 @@ const ViewUserProfile = ({ route, navigation }) => {
   const confirmDeleteComment = async () => {
     try {
       if (!commentToDelete || !selectedPost?.id) return;
-      const { error } = await supabase
-        .from('comentarios')
-        .delete()
-        .eq('publicacion_id', selectedPost.id)
-        .eq('usuario_carnet', commentToDelete.usuario)
-        .eq('contenido', commentToDelete.texto)
-        .eq('created_at', commentToDelete.created_at);
-      if (error) throw error;
+      if (!commentToDelete.id) throw new Error('Comentario sin id');
+      await deleteComment(commentToDelete.id);
       await openComments();
       setDeleteCommentModalVisible(false);
       setCommentToDelete(null);
@@ -885,19 +793,15 @@ const ViewUserProfile = ({ route, navigation }) => {
               <TouchableOpacity
                 onPress={async () => {
                   try {
-                    const carnet = await AsyncStorage.getItem('carnet');
-                    if (!carnet || !selectedPost) throw new Error('No se pudo identificar al usuario o la publicación');
-                    if (selectedPost.carnet_usuario === carnet) throw new Error('No puedes reportar tu propia publicación');
-                    const payload = {
-                      publicacion_id: selectedPost.id,
-                      carnet_reporta: carnet,
-                      carnet_publica: selectedPost.carnet_usuario || null,
+                    if (!selectedPost?.id) throw new Error('No se pudo identificar la publicación');
+                    if (miCarnet && selectedPost.carnet_usuario === miCarnet) {
+                      throw new Error('No puedes reportar tu propia publicación');
+                    }
+
+                    await reportPost(selectedPost.id, {
                       motivo: reportReason,
-                      detalle: reportText || null,
-                      created_at: new Date().toISOString(),
-                    };
-                    const { error } = await supabase.from('reportes_publicaciones').insert([payload]);
-                    if (error) throw error;
+                      detalle: reportText?.trim() || undefined,
+                    });
                     setReportModalVisible(false);
                     setTimeout(() => {
                       setAlert({
@@ -911,6 +815,16 @@ const ViewUserProfile = ({ route, navigation }) => {
                       setReportReason('Contenido inapropiado');
                     }, 300);
                   } catch (err) {
+                    if (err instanceof ApiError && err.status === 401) {
+                      setAlert({
+                        visible: true,
+                        type: 'error',
+                        title: 'Inicia sesión',
+                        message: 'Necesitas iniciar sesión para reportar.',
+                        onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                      });
+                      return;
+                    }
                     setAlert({
                       visible: true,
                       type: 'error',
@@ -1430,16 +1344,11 @@ const VentasUsuario = ({ userId, setAlert }) => {
       return;
     }
     try {
-      const { data, error } = await supabase
-        .from('productos')
-        .select('*')
-        .eq('usuario_carnet', userId)
-        .order('fecha_publicacion', { ascending: false });
-      if (!error && data) {
-        setProductos(data);
-      } else if (error) {
-        console.error('Error al cargar productos:', error);
-      }
+      const all = await listProducts();
+      const filtered = (all || [])
+        .filter((p) => String(p?.usuario_carnet) === String(userId))
+        .slice();
+      setProductos(filtered);
     } catch (err) {
       console.error('Error al cargar productos:', err);
     } finally {
@@ -1823,18 +1732,11 @@ const VentasUsuario = ({ userId, setAlert }) => {
                                                 <TouchableOpacity
                                                   onPress={async () => {
                                                     try {
-                                                      const carnet = await AsyncStorage.getItem('carnet');
-                                                      if (!carnet || !productoSeleccionado) throw new Error('No se pudo identificar al usuario o el producto');
-                                                      const payload = {
-                                                        producto_id: productoSeleccionado?.id || null,
-                                                        carnet_reporta: carnet,
-                                                        carnet_publica: productoSeleccionado?.usuario_carnet || null,
+                                                      if (!productoSeleccionado?.id) throw new Error('No se pudo identificar el producto');
+                                                      await reportProduct(productoSeleccionado.id, {
                                                         motivo: reportReason,
-                                                        detalle: reportText || null,
-                                                        created_at: new Date().toISOString(),
-                                                      };
-                                                      const { error } = await supabase.from('reportes_ventas').insert([payload]);
-                                                      if (error) throw error;
+                                                        detalle: reportText?.trim() || undefined,
+                                                      });
                                                       setAlert({
                                                         visible: true,
                                                         type: 'success',
@@ -1847,6 +1749,16 @@ const VentasUsuario = ({ userId, setAlert }) => {
                                                       setReportReason('Contenido inapropiado');
                                                     } catch (err) {
                                                       console.error('Error al enviar reporte:', err);
+                                                      if (err instanceof ApiError && err.status === 401) {
+                                                        setAlert({
+                                                          visible: true,
+                                                          type: 'error',
+                                                          title: 'Inicia sesión',
+                                                          message: 'Necesitas iniciar sesión para reportar.',
+                                                          onConfirm: () => setAlert((a) => ({ ...a, visible: false })),
+                                                        });
+                                                        return;
+                                                      }
                                                       setAlert({
                                                         visible: true,
                                                         type: 'error',

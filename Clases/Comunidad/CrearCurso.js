@@ -46,7 +46,7 @@ export default function CrearCurso({ navigation }) {
   };
 
   const handleGuardar = () => {
-    // Aquí iría la lógica para guardar el curso y capítulos en Supabase
+    // Aquí iría la lógica para guardar el curso y capítulos en el backend
     navigation.goBack();
   };
 

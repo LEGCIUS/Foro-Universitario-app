@@ -1,11 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert, RefreshControl, Platform, Modal, TextInput, Linking, ScrollView, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
-import { supabase } from '../../Supabase/supabaseClient';
 import PublicationModal from '../publications/PublicationModal';
 import CommentsModal from '../components/CommentsModal';
+
+import { ApiError } from '../../src/services/api';
+import { listAdminReports, deleteAdminReport, adminDeleteContent } from '../../src/services/admin';
+import { getMe, getUserByCarnet } from '../../src/services/users';
+import { getPost } from '../../src/services/posts';
+import { getProduct } from '../../src/services/products';
+import { getPostLikeState, likePost, unlikePost } from '../../src/services/likes';
+import { listComments, createComment } from '../../src/services/comments';
 
 export default function AdminScreen({ navigation }) {
   const { darkMode } = useTheme();
@@ -70,39 +76,8 @@ export default function AdminScreen({ navigation }) {
   const fetchReports = useCallback(async () => {
     setLoading(true);
     try {
-      // 1) Reportes de publicaciones
-      const { data: pubReports, error: pubErr } = await supabase
-        .from('reportes_publicaciones')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (pubErr) throw pubErr;
-
-      const normalizedPub = (pubReports || []).map(r => ({
-        ...r,
-        tipo_reporte: 'publicacion',
-        motivo_original: r.motivo,
-        tabla_origen: 'reportes_publicaciones',
-      }));
-
-      // 2) Reportes de ventas/productos
-      const { data: prodReports, error: prodErr } = await supabase
-        .from('reportes_ventas')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (prodErr && prodErr.code !== 'PGRST116') throw prodErr; // tabla podría no existir aún
-
-      const normalizedProd = (prodReports || []).map(r => ({
-        ...r,
-        tipo_reporte: 'producto',
-        motivo_original: r.motivo,
-        tabla_origen: 'reportes_ventas',
-      }));
-
-      // Unificar y ordenar por fecha
-      const unified = [...normalizedPub, ...normalizedProd].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setReports(unified);
+      const unified = await listAdminReports({ limit: 200 });
+      setReports((unified || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
     } catch (err) {
       Alert.alert('Error', err.message || 'No se pudo cargar los reportes');
     } finally {
@@ -118,35 +93,39 @@ export default function AdminScreen({ navigation }) {
     setRefreshing(false);
   };
 
-  // Util: asegurar carnet del admin
+  // Util: asegurar carnet del admin (desde JWT)
   const ensureCarnet = async () => {
     try {
       if (adminCarnet) return adminCarnet;
-      const c = await AsyncStorage.getItem('carnet');
-      if (c) setAdminCarnet(c);
-      return c;
-    } catch (_) { return null; }
+      const me = await getMe().catch(() => null);
+      if (me?.carnet) setAdminCarnet(me.carnet);
+      return me?.carnet || null;
+    } catch (_) {
+      return null;
+    }
   };
 
-  const fetchCountsAndLikeState = async (pubId) => {
+  useEffect(() => {
+    ensureCarnet();
+  }, []);
+
+  const refreshCountsAndLikeState = async (postId, fallbackCommentsCount) => {
     try {
-      const [likesRes, commentsRes] = await Promise.all([
-        supabase.from('likes').select('id', { count: 'exact', head: true }).eq('publicacion_id', pubId),
-        supabase.from('comentarios').select('id', { count: 'exact', head: true }).eq('publicacion_id', pubId),
+      const [likeState, post] = await Promise.all([
+        getPostLikeState(postId).catch(() => null),
+        getPost(postId).catch(() => null),
       ]);
-      if (likesRes && typeof likesRes.count === 'number') setLikesCount(likesRes.count);
-      if (commentsRes && typeof commentsRes.count === 'number') setCommentCount(commentsRes.count);
-      const c = await ensureCarnet();
-      if (c) {
-        const { data: mine } = await supabase
-          .from('likes')
-          .select('id')
-          .eq('publicacion_id', pubId)
-          .eq('usuario_carnet', c)
-          .maybeSingle();
-        setLikedByMe(!!mine);
-      } else {
-        setLikedByMe(false);
+
+      if (likeState) {
+        setLikedByMe(!!likeState.liked);
+        setLikesCount(typeof likeState.count === 'number' ? likeState.count : 0);
+      }
+
+      const cc = post?.comentarios_count ?? post?.comments_count;
+      if (typeof cc === 'number') {
+        setCommentCount(cc);
+      } else if (typeof fallbackCommentsCount === 'number') {
+        setCommentCount(fallbackCommentsCount);
       }
     } catch (_) {}
   };
@@ -154,67 +133,50 @@ export default function AdminScreen({ navigation }) {
   const handleToggleLike = async () => {
     try {
       if (!selectedPost?.id) return;
-      let c = await ensureCarnet();
-      if (!c) {
-        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
-        return;
-      }
       if (likedByMe) {
         setLikedByMe(false);
         setLikesCount((prev) => Math.max(0, prev - 1));
-        const { error } = await supabase
-          .from('likes')
-          .delete()
-          .eq('publicacion_id', selectedPost.id)
-          .eq('usuario_carnet', c);
-        if (error) {
-          setLikedByMe(true);
-          setLikesCount((prev) => prev + 1);
-        }
+        const state = await unlikePost(selectedPost.id);
+        setLikedByMe(!!state.liked);
+        setLikesCount(state.count);
       } else {
         setLikedByMe(true);
         setLikesCount((prev) => prev + 1);
-        const { error } = await supabase
-          .from('likes')
-          .upsert({ publicacion_id: selectedPost.id, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true });
-        if (error) {
-          setLikedByMe(false);
-          setLikesCount((prev) => Math.max(0, prev - 1));
-        }
+        const state = await likePost(selectedPost.id);
+        setLikedByMe(!!state.liked);
+        setLikesCount(state.count);
       }
-      await fetchCountsAndLikeState(selectedPost.id);
+      await refreshCountsAndLikeState(selectedPost.id);
     } catch (_) {}
   };
 
   const fetchComments = async (pubId) => {
     try {
-      const { data: rows, error } = await supabase
-        .from('comentarios')
-        .select('contenido, usuario_carnet, created_at')
-        .eq('publicacion_id', pubId)
-        .order('created_at', { ascending: true })
-        .limit(50);
-      if (error) return;
+      const rows = await listComments(pubId);
       const list = rows || [];
+
       const uniqueCarnets = Array.from(new Set(list.map(r => r.usuario_carnet).filter(Boolean)));
-      let profiles = new Map();
+      const profiles = new Map();
       if (uniqueCarnets.length > 0) {
-        try {
-          const { data: usuariosData } = await supabase
-            .from('usuarios')
-            .select('carnet, nombre, apellido, foto_perfil')
-            .in('carnet', uniqueCarnets);
-          (usuariosData || []).forEach(u => profiles.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil }));
-        } catch (_) {}
+        const results = await Promise.allSettled(uniqueCarnets.map((c) => getUserByCarnet(String(c))));
+        results.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const c = uniqueCarnets[idx];
+          profiles.set(String(c), { nombre: r.value?.nombre, apellido: r.value?.apellido, foto_perfil: r.value?.foto_perfil });
+        });
       }
+
       const enriched = list.map(r => {
-        const prof = profiles.get(r.usuario_carnet);
+        const prof = r.user
+          ? { nombre: r.user.nombre, apellido: r.user.apellido, foto_perfil: r.user.foto_perfil }
+          : profiles.get(String(r.usuario_carnet));
         const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
         const avatarUrl = prof?.foto_perfil || null;
-        return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.contenido, created_at: r.created_at };
+        return { usuario: r.usuario_carnet, displayName, avatarUrl, texto: r.texto, created_at: r.created_at, id: r.id };
       });
+
       setComments(enriched);
-      setCommentCount(enriched.length);
+      await refreshCountsAndLikeState(pubId, enriched.length);
     } catch (_) {}
   };
 
@@ -228,19 +190,9 @@ export default function AdminScreen({ navigation }) {
     try {
       const text = newComment.trim();
       if (!text || !selectedPost?.id) return;
-      let c = await ensureCarnet();
-      if (!c) {
-        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para comentar.');
-        return;
-      }
-      const { error } = await supabase
-        .from('comentarios')
-        .insert({ publicacion_id: selectedPost.id, usuario_carnet: c, contenido: text });
-      if (!error) {
-        setNewComment('');
-        await fetchComments(selectedPost.id);
-        await fetchCountsAndLikeState(selectedPost.id);
-      }
+      await createComment(selectedPost.id, text);
+      setNewComment('');
+      await fetchComments(selectedPost.id);
     } catch (_) {}
   };
 
@@ -251,32 +203,11 @@ export default function AdminScreen({ navigation }) {
         Alert.alert('Sin publicación', 'El reporte no tiene una publicación asociada.');
         return;
       }
-      // Buscar la publicación por id
-      const { data: pub, error: pubErr } = await supabase
-        .from('publicaciones')
-        .select('*')
-        .eq('id', rep.publicacion_id)
-        .maybeSingle();
-      if (pubErr) throw pubErr;
+      const pub = await getPost(rep.publicacion_id);
       if (!pub) {
         Alert.alert('No encontrada', 'La publicación ya no existe.');
         return;
       }
-      // Intentar traer contadores si existen, sino fallback a contar manualmente
-      try {
-        const { count: likesRaw } = await supabase
-          .from('likes')
-          .select('id', { count: 'exact', head: true })
-          .eq('publicacion_id', rep.publicacion_id);
-        setLikesCount(typeof likesRaw === 'number' ? likesRaw : 0);
-      } catch (_) { setLikesCount(0); }
-      try {
-        const { count: commentsRaw } = await supabase
-          .from('comentarios')
-          .select('id', { count: 'exact', head: true })
-          .eq('publicacion_id', rep.publicacion_id);
-        setCommentCount(typeof commentsRaw === 'number' ? commentsRaw : 0);
-      } catch (_) { setCommentCount(0); }
       // Normalizar campos para el modal (contenido y etiquetas)
       // Normalizar etiquetas robustamente contra distintos formatos
       let normalizedEtiquetas = [];
@@ -323,7 +254,7 @@ export default function AdminScreen({ navigation }) {
         contenido: guessContenido,
         etiquetas: normalizedEtiquetas,
       });
-      await fetchCountsAndLikeState(pub.id);
+      await refreshCountsAndLikeState(pub.id);
     } catch (err) {
       console.log('viewReportedPublication error detail:', err);
       Alert.alert('Error', err.message || 'No se pudo abrir la publicación.');
@@ -338,13 +269,7 @@ export default function AdminScreen({ navigation }) {
         Alert.alert('Sin producto', 'El reporte no tiene un producto asociado.');
         return;
       }
-      // Buscar el producto por id
-      const { data: prod, error: prodErr } = await supabase
-        .from('productos')
-        .select('*')
-        .eq('id', productId)
-        .maybeSingle();
-      if (prodErr) throw prodErr;
+      const prod = await getProduct(productId);
       if (!prod) {
         Alert.alert('No encontrado', 'El producto ya no existe.');
         return;
@@ -353,8 +278,8 @@ export default function AdminScreen({ navigation }) {
       // Navigate to Ventas tab and show product details
       // Since we can't directly control ProductosList modal, show an alert with product info
       Alert.alert(
-        `Producto: ${prod.titulo || 'Sin título'}`,
-        `Precio: $${prod.precio || 0}\nDescripción: ${prod.descripcion || 'N/A'}\nUsuario: ${prod.usuario_carnet || 'N/A'}`,
+        `Producto: ${prod.nombre || 'Sin título'}`,
+        `Precio: ₡${prod.precio || 0}\nDescripción: ${prod.descripcion || 'N/A'}\nUsuario: ${prod.usuario_carnet || 'N/A'}`,
         [
           { text: 'OK' },
           { 
@@ -379,36 +304,20 @@ export default function AdminScreen({ navigation }) {
         // Fetch product
         const productId = report.producto_id || report.publicacion_id || report.id_contenido;
         if (productId) {
-          const { data: prod, error: prodErr } = await supabase
-            .from('productos')
-            .select('id, foto_url, usuario_carnet, titulo')
-            .eq('id', productId)
-            .maybeSingle();
-          if (prodErr) console.log('openDeleteFlow: error buscando producto', prodErr);
-          publication = prod ? { ...prod, tipo: 'producto' } : null;
+          const prod = await getProduct(productId).catch(() => null);
+          publication = prod ? { ...prod, tipo: 'producto', titulo: prod.nombre || prod.titulo } : null;
         }
       } else {
         // Fetch publication
         if (report.publicacion_id) {
-          const { data: pub, error: pubErr } = await supabase
-            .from('publicaciones')
-            .select('id, archivo_url, carnet_usuario, titulo')
-            .eq('id', report.publicacion_id)
-            .maybeSingle();
-          if (pubErr) console.log('openDeleteFlow: error buscando publicación', pubErr);
+          const pub = await getPost(report.publicacion_id).catch(() => null);
           publication = pub ? { ...pub, tipo: 'publicacion' } : null;
         }
       }
 
       const carnetAutor = report.carnet_publica || report.usuario_publica || publication?.carnet_usuario || publication?.usuario_carnet || null;
       if (carnetAutor) {
-        const { data: usr, error: usrErr } = await supabase
-          .from('usuarios')
-          .select('carnet, correo, nombre, apellido')
-          .eq('carnet', carnetAutor)
-          .maybeSingle();
-        if (usrErr) console.log('openDeleteFlow: error buscando usuario', usrErr);
-        author = usr || null;
+        author = await getUserByCarnet(String(carnetAutor)).catch(() => null);
       }
       setTarget({ report, publication, author });
       setDeleteReason('Incumplimiento de normas');
@@ -455,147 +364,22 @@ export default function AdminScreen({ navigation }) {
     }
     try {
       setDeleting(true);
-      const adminCarnet = await AsyncStorage.getItem('carnet');
       const esProducto = target.publication?.tipo === 'producto' || target.report?.tipo_reporte === 'producto';
-      
-      // Asegurar que tenemos la publicación/producto y el autor
-      let publication = target.publication;
-      if (!publication) {
-        const tableName = esProducto ? 'productos' : 'publicaciones';
-        const lookupId = esProducto ? (target.report?.producto_id || target.report?.publicacion_id) : target.report?.publicacion_id;
-        if (lookupId) {
-          const { data: item, error: itemErr } = await supabase
-            .from(tableName)
-            .select('*')
-            .eq('id', lookupId)
-            .maybeSingle();
-          if (itemErr) console.log(`confirmDeletePublication: error buscando ${tableName}`, itemErr);
-          publication = item ? { ...item, tipo: esProducto ? 'producto' : 'publicacion' } : null;
-        }
-      }
-      if (!publication) throw new Error(`No se encontró ${esProducto ? 'el producto' : 'la publicación'}.`);
-      
-      // 1) Eliminar archivo(s) del storage (si aplica)
-      const fileUrl = publication.archivo_url || publication.foto_url;
-      if (fileUrl) {
-        const bucket = esProducto ? 'fotos-productos' : 'multimedia';
-        // foto_url puede ser un array de URLs (productos) o una string
-        const urls = Array.isArray(fileUrl) ? fileUrl : [fileUrl];
-        for (const url of urls) {
-          const storagePath = extractMultimediaPath(url);
-          if (storagePath) {
-            try { 
-              await supabase.storage.from(bucket).remove([storagePath]); 
-            } catch (e) { 
-              console.log('Error al eliminar del storage', e); 
-            }
-          }
-        }
-      }
-      
-      // 2) Eliminar la fila en productos/publicaciones
-      const tableName = esProducto ? 'productos' : 'publicaciones';
-      const { error: delErr } = await supabase.from(tableName).delete().eq('id', publication.id);
-      if (delErr) throw delErr;
+      const contentType = esProducto ? 'producto' : 'publicacion';
+      const contentId = target.publication?.id || (esProducto ? (target.report?.producto_id || target.report?.publicacion_id || target.report?.id_contenido) : target.report?.publicacion_id);
+      if (!contentId) throw new Error('No se pudo determinar el contenido a eliminar.');
 
-      // 3) Insertar auditoría (solo si la tabla existe - verificamos con head)
-      const carnetUsuario = esProducto 
-        ? (publication.usuario_carnet || target.report?.carnet_publica) 
-        : (publication.carnet_usuario || target.report?.carnet_publica);
-      const auditPayload = { 
-        publicacion_id: publication.id,
-        carnet_admin: adminCarnet || null,
-        carnet_usuario: carnetUsuario || null,
+      await adminDeleteContent({
+        contentType,
+        contentId,
+        reportId: target.report?.id,
         motivo: deleteReason,
         detalle: deleteDetails,
         base_reglamentaria: deleteRegBasis || null,
         enlace: deleteLink || null,
-        // tipo_contenido removido - columna no existe en la tabla
-        created_at: new Date().toISOString(),
-      };
-      // Intentar insertar auditoría - si falla, continuar de todas formas
-      try {
-        const { error: auditErr } = await supabase
-          .from('auditoria_eliminaciones')
-          .insert([auditPayload]);
-        if (auditErr) {
-          console.log('⚠️ No se pudo guardar auditoría:', auditErr.message);
-        }
-      } catch (e) {
-        console.log('⚠️ Error en auditoría (continuando):', e.message);
-      }
+      });
 
-      // 4) Notificar al usuario en la app (si existe la tabla notificaciones)
-      const contentType = esProducto ? 'producto' : 'publicación';
-      const message = `Tu ${contentType} fue ${esProducto ? 'eliminado' : 'eliminada'} por un administrador. Motivo: ${deleteReason}.`;
-      const notifPayload = { 
-        carnet: carnetUsuario,
-        tipo: esProducto ? 'producto_eliminado' : 'publicacion_eliminada',
-        titulo: `Tu ${contentType} fue ${esProducto ? 'eliminado' : 'eliminada'}`,
-        mensaje: message,
-        data: {
-          content_id: publication.id,
-          tipo_contenido: esProducto ? 'producto' : 'publicacion',
-          motivo: deleteReason,
-          detalle: deleteDetails,
-          base_reglamentaria: deleteRegBasis || null,
-          enlace: deleteLink || null,
-          admin: adminCarnet || null,
-        },
-        leido: false,
-        created_at: new Date().toISOString(),
-      };
-      const { error: notifCheckErr } = await supabase
-        .from('notificaciones')
-        .select('id', { count: 'exact', head: true })
-        .limit(1);
-      if (!notifCheckErr || notifCheckErr.code !== 'PGRST116') {
-        try { 
-          await supabase.from('notificaciones').insert([notifPayload]); 
-          console.log('Notificación insertada para carnet:', carnetUsuario);
-        } catch (e) { 
-          console.log('Error al insertar notificación:', e); 
-        }
-      }
-
-      // 5) Enviar correo de notificación al usuario vía Edge Function
-      if (carnetUsuario) {
-        try {
-          const { data: userRow } = await supabase
-            .from('usuarios')
-            .select('correo, nombre, apellido')
-            .eq('carnet', carnetUsuario)
-            .maybeSingle();
-
-          if (userRow?.correo) {
-            console.log('📧 Enviando correo a:', userRow.correo);
-            
-            const { data: emailRes, error: emailErr } = await supabase.functions.invoke('send-deletion-email', {
-              body: {
-                to_email: userRow.correo,
-                user_name: userRow.nombre || 'Usuario',
-                content_type: contentType,
-                content_title: publication.titulo || publication.nombre || '(sin título)',
-                motivo: deleteReason,
-                detalle: deleteDetails,
-                base_reglamentaria: deleteRegBasis || null,
-                enlace: deleteLink || null,
-              }
-            });
-            
-            if (emailErr) {
-              console.warn('⚠️ Error al enviar correo:', emailErr);
-            } else {
-              console.log('✅ Correo enviado:', emailRes);
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ Error al enviar correo:', e.message);
-        }
-      }
-
-      // 6) Actualizar UI: quitar reportes relacionados y cerrar modal
-      const contentId = publication.id;
+      // Actualizar UI: quitar reportes relacionados y cerrar modal
       setReports((prev) => prev.filter(r => {
         const rContentId = r.publicacion_id || r.producto_id || r.id_contenido;
         return rContentId !== contentId;
@@ -608,7 +392,7 @@ export default function AdminScreen({ navigation }) {
       setDeleteLink('');
       setShowDeleteModal(false);
       setDeleting(false);
-      Alert.alert('Eliminada', `${esProducto ? 'Producto' : 'Publicación'} eliminado y usuario notificado.`);
+      Alert.alert('Eliminada', `${esProducto ? 'Producto' : 'Publicación'} eliminado y reporte actualizado.`);
     } catch (err) {
       console.log('confirmDeletePublication error:', err);
       setDeleting(false);
@@ -673,9 +457,7 @@ export default function AdminScreen({ navigation }) {
             <TouchableOpacity
               onPress={async () => {
                 try {
-                  const table = item.tabla_origen || (isProducto ? 'reportes_ventas' : 'reportes_publicaciones');
-                  const { error } = await supabase.from(table).delete().eq('id', item.id);
-                  if (error) throw error;
+                  await deleteAdminReport(item.id);
                   setReports((prev) => prev.filter(r => r.id !== item.id));
                 } catch (err) {
                   Alert.alert('Error', err.message || 'No se pudo eliminar');
@@ -919,38 +701,4 @@ const createStyles = (darkMode, safeTop = 0) => StyleSheet.create({
   textArea: { minHeight: 90, borderWidth: 1, borderRadius: 10, padding: 10 },
 });
 
-// Helpers y flujo de eliminación
-const extractMultimediaPath = (publicUrl) => {
-  if (!publicUrl || typeof publicUrl !== 'string') return null;
-  try {
-    const u = new URL(publicUrl);
-    const marker = '/object/public/multimedia/';
-    const idx = u.pathname.indexOf(marker);
-    if (idx !== -1) return decodeURIComponent(u.pathname.substring(idx + marker.length));
-    const parts = publicUrl.split('?')[0].split('/multimedia/');
-    if (parts[1]) return decodeURIComponent(parts[1]);
-  } catch (_) {
-    const parts = publicUrl.split('?')[0].split('/multimedia/');
-    if (parts[1]) return decodeURIComponent(parts[1]);
-  }
-  return null;
-};
-
-async function fetchPublicationAndAuthor(supabase, report) {
-  // Obtiene publicación y autor (por carnet o por la fila de publicaciones)
-  let publication = null;
-  let author = null;
-  const pubId = report.publicacion_id;
-  if (pubId) {
-    const { data: pub } = await supabase.from('publicaciones').select('id, archivo_url, carnet_usuario, titulo').eq('id', pubId).maybeSingle?.() ?? await supabase.from('publicaciones').select('id, archivo_url, carnet_usuario, titulo').eq('id', pubId).single();
-    publication = pub || null;
-  }
-  const carnetAutor = report.carnet_publica || publication?.carnet_usuario || null;
-  if (carnetAutor) {
-    const { data: usr } = await supabase.from('usuarios').select('carnet, correo, nombre, apellido').eq('carnet', carnetAutor).maybeSingle?.() ?? await supabase.from('usuarios').select('carnet, correo, nombre, apellido').eq('carnet', carnetAutor).single();
-    author = usr || null;
-  }
-  return { publication, author };
-}
-
-// Métodos de instancia: necesitan acceso a hooks; definimos como funciones dentro del componente, pero agregamos aquí el código para claridad en el patch
+// Helpers removidos: eliminación/notificación se delega al backend.

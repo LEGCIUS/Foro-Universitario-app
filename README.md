@@ -39,7 +39,7 @@ Esta herramienta busca fomentar comunidades académicas digitales dentro de univ
 - 💬 Creación y gestión de publicaciones e hilos de discusión  
 - 📎 Soporte para adjuntar recursos y materiales académicos  
 - 🧭 Clasificación por categorías o asignaturas  
-- ⚡️ Integración con **Supabase** (autenticación, base de datos y almacenamiento)  
+- ⚡️ Backend propio vía API REST (JWT + almacenamiento seguro de token)  
 - 📱 Interfaz modular y adaptable  
 - 🔒 Configuración segura mediante variables de entorno (.env)
 
@@ -49,7 +49,8 @@ Esta herramienta busca fomentar comunidades académicas digitales dentro de univ
 
 - **TypeScript / JavaScript**
 - **Node.js** + **npm**
-- **Supabase** (BaaS)
+- **Expo / React Native**
+- **API REST** (backend propio)
 - **HTML5 / CSS3 / Tailwind / frameworks frontend**
 - **Git** y **GitHub** para control de versiones
 - **tsconfig.json** para tipado y compilación
@@ -69,12 +70,11 @@ cd Foro-Universitario-app
 npm install
 
 # 3. Configura las variables de entorno
-# Crea un archivo .env y define tus claves de Supabase:
-# SUPABASE_URL=
-# SUPABASE_ANON_KEY=
+# Crea un archivo .env y define la URL del backend:
+# EXPO_PUBLIC_API_URL=https://tu-backend.com
 
 # 4. Ejecuta la app en modo desarrollo
-npm run dev
+npm start
 
 💡 Nota: Asegúrate de tener Node.js y npm instalados antes de comenzar.
 
@@ -90,7 +90,6 @@ npm run dev
 Foro-Universitario-app/
 │
 ├── Clases/          # Módulos y componentes relacionados con las clases/categorías
-├── Supabase/        # Configuración e integración con Supabase (BaaS)
 ├── assets/          # Recursos estáticos: imágenes, íconos, estilos
 ├── app.json         # Configuración de la aplicación
 ├── package.json     # Dependencias y scripts npm
@@ -123,7 +122,6 @@ Por el equipo Tempora.
 -----------------------------------------------------------------------
 🌟 Reconocimientos:
 🧱 Inspirado por proyectos de colaboración universitaria open-source
-💾 Supabase por su facilidad de uso y potencia
 🙏 Gracias a todos los colaboradores y futuros contribuidores
 -----------------------------------------------------------------------
 

@@ -1,10 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, ActivityIndicator, Image, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, ScrollView, Modal, Dimensions, FlatList, TouchableWithoutFeedback, Linking } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import { Buffer } from 'buffer';
-import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
@@ -16,6 +12,14 @@ import { createMaterialTopTabNavigator } from '@react-navigation/material-top-ta
 import { Video } from 'expo-av';
 import CreatePublicationModal from '../publications/CreatePublicationModal';
 import PublicationModal from '../publications/PublicationModal';
+
+import { ApiError, uploadImage } from '../../src/services/api';
+import { getMe, updateMeProfile, getUserByCarnet } from '../../src/services/users';
+import { listPosts, deletePost } from '../../src/services/posts';
+import { getPostLikeState, likePost, unlikePost } from '../../src/services/likes';
+import { listComments, createComment, deleteComment } from '../../src/services/comments';
+import { listProducts, deleteProduct } from '../../src/services/products';
+import { listNotifications, markNotificationRead } from '../../src/services/notifications';
 
 const Tab = createMaterialTopTabNavigator();
 
@@ -33,17 +37,14 @@ export default function PerfilUsuario({ navigation }) {
 
   const fetchUsuario = async () => {
     setLoading(true);
-    const carnet = await AsyncStorage.getItem('carnet');
-    if (!carnet) { setLoading(false); return; }
-    const { data, error } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('carnet', carnet)
-      .single();
-    if (!error && data) {
-      setUsuario(data);
-      setNuevaBio(data.biografia || '');
-      setNuevaFoto(data.foto_perfil || '');
+    try {
+      const me = await getMe();
+      setUsuario(me);
+      setNuevaBio(me?.biografia || '');
+      setNuevaFoto(me?.foto_perfil || '');
+    } catch (e) {
+      console.warn('Error cargando perfil:', e);
+      setUsuario(null);
     }
     setLoading(false);
   };
@@ -56,79 +57,73 @@ export default function PerfilUsuario({ navigation }) {
     const fetchNotifications = async () => {
       try {
         if (!usuario?.carnet) return;
-        const { data, error } = await supabase
-          .from('notificaciones')
-          .select('id, titulo, mensaje, data, created_at')
-          .eq('carnet', usuario.carnet)
-          .eq('tipo', 'publicacion_eliminada')
-          .eq('leido', false)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (!error && data && data.length > 0) {
-          setUnreadDeletion(data[0]);
-        } else {
-          setUnreadDeletion(null);
-        }
+        const rows = await listNotifications({
+          tipo: 'publicacion_eliminada',
+          unread: true,
+          limit: 1,
+        });
+        setUnreadDeletion(Array.isArray(rows) && rows.length > 0 ? rows[0] : null);
       } catch (_) {}
     };
     fetchNotifications();
   }, [usuario?.carnet]);
 
   const pickImageAndUpload = async () => {
-    let result;
-    if (Platform.OS === 'web') {
-      result = await ImagePicker.launchImageLibraryAsync({
+    try {
+      if (!usuario?.carnet) return;
+      const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.7,
       });
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        const file = asset.file || asset;
-        const fileName = file.name || 'perfil.jpg';
-        const fileType = file.type || 'image/jpeg';
-        const filePath = `${usuario.carnet}/${fileName}`;
-        const { data, error } = await supabase.storage
-          .from('fotos-perfil')
-          .upload(filePath, file, { contentType: fileType, upsert: true });
-        if (error) { Alert.alert('Error', error.message || 'No se pudo subir la imagen'); return; }
-        const { data: publicData } = supabase.storage.from('fotos-perfil').getPublicUrl(data.path);
-        setNuevaFoto(publicData.publicUrl);
-      }
-    } else {
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.7,
+      if (result.canceled) return;
+
+      const asset = result.assets?.[0];
+      const uri = asset?.uri;
+      if (!uri) return;
+
+      const guessedName = (uri.split('/').pop() || 'perfil.jpg');
+      const guessedExt = (guessedName.split('.').pop() || 'jpg').toLowerCase();
+      const typeFromExt = guessedExt === 'png' ? 'image/png' : 'image/jpeg';
+      const mimeType = asset?.mimeType || asset?.type || typeFromExt;
+
+      const { url } = await uploadImage({
+        uri,
+        name: guessedName,
+        type: mimeType,
       });
-      if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        const fileName = uri.split('/').pop();
-        const fileType = fileName.split('.').pop();
-        const filePath = `${usuario.carnet}/perfil.${fileType}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-        const fileBuffer = Buffer.from(base64, 'base64');
-        const { data, error } = await supabase.storage
-          .from('fotos-perfil')
-          .upload(filePath, fileBuffer, { contentType: `image/${fileType}`, upsert: true });
-        if (error || !data) { Alert.alert('Error al subir la imagen', error?.message || 'No se pudo subir la imagen al storage.'); return; }
-        const { data: publicData } = supabase.storage.from('fotos-perfil').getPublicUrl(filePath);
-        if (!publicData || !publicData.publicUrl) { Alert.alert('Error', 'No se pudo obtener la URL pública de la imagen.'); return; }
-        const urlConTimestamp = publicData.publicUrl + `?t=${Date.now()}`;
-        setNuevaFoto(urlConTimestamp);
-        await supabase.from('usuarios').update({ foto_perfil: urlConTimestamp }).eq('carnet', usuario.carnet);
-        setUsuario({ ...usuario, foto_perfil: urlConTimestamp });
+
+      const urlConTimestamp = url + `?t=${Date.now()}`;
+      setNuevaFoto(urlConTimestamp);
+
+      const updated = await updateMeProfile({ foto_perfil: urlConTimestamp });
+      setUsuario(updated);
+    } catch (e) {
+      console.warn('Error subiendo foto:', e);
+      if (e instanceof ApiError && e.status === 401) {
+        Alert.alert('Sesión requerida', 'Inicia sesión para actualizar tu foto.');
+        return;
       }
+      Alert.alert('Error', 'No se pudo subir la imagen.');
     }
   };
 
   const handleGuardar = async () => {
-    setLoading(true);
-    await supabase.from('usuarios').update({ biografia: nuevaBio, foto_perfil: nuevaFoto }).eq('carnet', usuario.carnet);
-    setLoading(false);
-    setUsuario({ ...usuario, biografia: nuevaBio, foto_perfil: nuevaFoto });
+    try {
+      setLoading(true);
+      const updated = await updateMeProfile({ biografia: nuevaBio, foto_perfil: nuevaFoto });
+      setUsuario(updated);
+    } catch (e) {
+      console.warn('Error guardando perfil:', e);
+      if (e instanceof ApiError && e.status === 401) {
+        Alert.alert('Sesión requerida', 'Inicia sesión para guardar cambios.');
+      } else {
+        Alert.alert('Error', 'No se pudieron guardar los cambios.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {
@@ -169,7 +164,7 @@ export default function PerfilUsuario({ navigation }) {
               <TouchableOpacity
                 onPress={async () => {
                   try {
-                    await supabase.from('notificaciones').update({ leido: true }).eq('id', unreadDeletion.id);
+                    await markNotificationRead(unreadDeletion.id);
                   } catch (_) {}
                   setUnreadDeletion(null);
                 }}
@@ -399,20 +394,16 @@ function PublicacionesTab({ usuario, darkMode }) {
   useEffect(() => {
     const fetchPosts = async () => {
       setLoading(true);
-      if (!usuario.carnet || usuario.carnet === "Fotos") {
-        setPosts([]);
-        setLoading(false);
-        return;
-      }
-      const { data, error } = await supabase
-        .from('publicaciones')
-        .select('*')
-        .eq('carnet_usuario', usuario.carnet)
-        .order('fecha_publicacion', { ascending: false });
-
-      if (!error && data) {
-        const mapped = data.map(pub => {
-          // Parse etiquetas similar a HomeScreen
+      try {
+        if (!usuario?.carnet || usuario.carnet === 'Fotos') {
+          setPosts([]);
+          return;
+        }
+        setCarnet(usuario.carnet);
+        const all = await listPosts();
+        const mine = (all || []).filter((p) => String(p.carnet_usuario) === String(usuario.carnet));
+        mine.sort((a, b) => new Date(b.fecha_publicacion || 0) - new Date(a.fecha_publicacion || 0));
+        const mapped = mine.map(pub => {
           let etiquetas = [];
           try {
             if (pub.etiquetas && typeof pub.etiquetas === 'string') {
@@ -432,40 +423,17 @@ function PublicacionesTab({ usuario, darkMode }) {
           return { ...pub, etiquetas };
         });
         setPosts(mapped);
+      } catch (e) {
+        console.warn('Error cargando publicaciones:', e);
+        setPosts([]);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     fetchPosts();
   }, [usuario.carnet]);
 
-  // Realtime: reflejar inserciones/actualizaciones/eliminaciones al instante para este usuario
-  useEffect(() => {
-    if (!usuario?.carnet) return;
-    const channel = supabase
-      .channel(`perfil-publicaciones-${usuario.carnet}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'publicaciones',
-        filter: `carnet_usuario=eq.${usuario.carnet}`,
-      }, (payload) => {
-        setPosts((prev) => {
-          if (payload.eventType === 'DELETE') {
-            const delId = payload.old?.id;
-            return prev.filter((p) => p.id !== delId);
-          }
-          const pub = payload.new;
-          const others = prev.filter((p) => p.id !== pub.id);
-          const next = [pub, ...others];
-          next.sort((a,b) => new Date(b.fecha_publicacion) - new Date(a.fecha_publicacion));
-          return next;
-        });
-      })
-      .subscribe();
-    return () => {
-      try { supabase.removeChannel(channel); } catch {}
-    };
-  }, [usuario?.carnet]);
+  // Sin realtime. El refresco se hace por recarga.
 
   // Helpers
   const extractMultimediaPath = (publicUrl) => {
@@ -493,18 +461,7 @@ function PublicacionesTab({ usuario, darkMode }) {
     const post = pendingDeletePost;
     if (!post) return;
     try {
-      // 1) Eliminar archivo del storage si existe
-      const storagePath = extractMultimediaPath(post.archivo_url);
-      if (storagePath) {
-        await supabase.storage.from('multimedia').remove([storagePath]);
-      }
-      // 2) Eliminar fila en la base de datos
-      await supabase
-        .from('publicaciones')
-        .delete()
-        .eq('id', post.id)
-        .eq('carnet_usuario', usuario.carnet);
-      // 3) Actualizar UI
+      await deletePost(post.id);
       setPosts((prev) => prev.filter((p) => p.id !== post.id));
   setSelectedPost(null);
   setConfirmDeleteVisible(false);
@@ -526,29 +483,13 @@ function PublicacionesTab({ usuario, darkMode }) {
     if (!selectedPost?.id) return;
     (async () => {
       try {
-        let c = carnet;
-        if (!c) {
-          c = await AsyncStorage.getItem('carnet');
-          if (c) setCarnet(c);
+        const likeState = await getPostLikeState(selectedPost.id).catch(() => null);
+        if (likeState) {
+          setLiked(!!likeState.liked);
+          setLikeCount(typeof likeState.count === 'number' ? likeState.count : 0);
         }
-        if (c) {
-          const { data: mine } = await supabase
-            .from('likes')
-            .select('id')
-            .eq('publicacion_id', selectedPost.id)
-            .eq('usuario_carnet', c)
-            .maybeSingle();
-          setLiked(!!mine);
-        }
-        const { data: pubRow } = await supabase
-          .from('publicaciones')
-          .select('likes_count, comentarios_count')
-          .eq('id', selectedPost.id)
-          .maybeSingle();
-        if (pubRow) {
-          if (typeof pubRow.likes_count === 'number') setLikeCount(pubRow.likes_count);
-          if (typeof pubRow.comentarios_count === 'number') setCommentCount(pubRow.comentarios_count);
-        }
+        const cc = selectedPost?.comentarios_count ?? selectedPost?.comments_count;
+        if (typeof cc === 'number') setCommentCount(cc);
       } catch (e) {
         console.warn('Error cargando likes/comentarios:', e);
       }
@@ -559,111 +500,74 @@ function PublicacionesTab({ usuario, darkMode }) {
     try {
       const postId = selectedPost?.id;
       if (!postId) return;
-      let c = carnet;
-      if (!c) {
-        c = await AsyncStorage.getItem('carnet');
-        if (!c) return;
-        setCarnet(c);
-      }
+      // Optimista
       if (liked) {
         setLiked(false);
         setLikeCount((prev) => Math.max(0, prev - 1));
-        const { error } = await supabase
-          .from('likes')
-          .delete()
-          .eq('publicacion_id', postId)
-          .eq('usuario_carnet', c);
-        if (error) {
-          setLiked(true);
-          setLikeCount((prev) => prev + 1);
-        }
+        const state = await unlikePost(postId);
+        setLiked(!!state.liked);
+        setLikeCount(state.count);
       } else {
         setLiked(true);
         setLikeCount((prev) => prev + 1);
-        const { error } = await supabase
-          .from('likes')
-          .upsert({ publicacion_id: postId, usuario_carnet: c }, { onConflict: 'publicacion_id,usuario_carnet', ignoreDuplicates: true });
-        if (error) {
-          setLiked(false);
-          setLikeCount((prev) => Math.max(0, prev - 1));
-        }
+        const state = await likePost(postId);
+        setLiked(!!state.liked);
+        setLikeCount(state.count);
       }
-      const { data: pubData } = await supabase
-        .from('publicaciones')
-        .select('likes_count, comentarios_count')
-        .eq('id', postId)
-        .maybeSingle();
-      if (pubData) {
-        if (typeof pubData.likes_count === 'number') setLikeCount(pubData.likes_count);
-        if (typeof pubData.comentarios_count === 'number') setCommentCount(pubData.comentarios_count);
-      }
-      const { data: mine } = await supabase
-        .from('likes')
-        .select('id')
-        .eq('publicacion_id', postId)
-        .eq('usuario_carnet', c)
-        .maybeSingle();
-      setLiked(!!mine);
     } catch (err) {
       console.error('handleLike perfil error:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        Alert.alert('Sesión requerida', 'Inicia sesión para dar like.');
+      }
     }
   };
 
   const openComments = async () => {
     try {
       if (!selectedPost?.id) return;
-      const { data, error } = await supabase
-        .from('comentarios')
-        .select('id, contenido, usuario_carnet, created_at, likes_count')
-        .eq('publicacion_id', selectedPost.id)
-        .order('created_at', { ascending: true })
-        .limit(50);
-      if (!error) {
-        const rows = data || [];
-        const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
-        const cache = profileCacheRef.current;
-        const missing = uniqueCarnets.filter(c => !cache.has(c));
-        if (missing.length > 0) {
-          const { data: usuariosData, error: usuariosErr } = await supabase
-            .from('usuarios')
-            .select('carnet, nombre, apellido, foto_perfil')
-            .in('carnet', missing);
-          if (!usuariosErr && Array.isArray(usuariosData)) {
-            usuariosData.forEach(u => {
-              cache.set(u.carnet, { nombre: u.nombre, apellido: u.apellido, foto_perfil: u.foto_perfil });
-            });
-          }
-        }
-        const enriched = rows.map(r => {
-          const prof = cache.get(r.usuario_carnet);
-          const displayName = prof ? `${prof.nombre || ''} ${prof.apellido || ''}`.trim() : r.usuario_carnet;
-          const avatarUrl = prof?.foto_perfil || null;
-          return { 
-            id: r.id,
-            usuario: r.usuario_carnet, 
-            displayName, 
-            avatarUrl, 
-            texto: r.contenido, 
-            created_at: r.created_at,
-            likes_count: r.likes_count || 0
-          };
+      const rows = await listComments(selectedPost.id);
+
+      const cache = profileCacheRef.current;
+      const uniqueCarnets = Array.from(new Set(rows.map(r => r.usuario_carnet).filter(Boolean)));
+      const missing = uniqueCarnets.filter(c => !cache.has(String(c)));
+      if (missing.length > 0) {
+        const profs = await Promise.allSettled(missing.map((c) => getUserByCarnet(String(c))));
+        profs.forEach((r, idx) => {
+          if (r.status !== 'fulfilled') return;
+          const c = missing[idx];
+          cache.set(String(c), {
+            nombre: r.value?.nombre,
+            apellido: r.value?.apellido,
+            foto_perfil: r.value?.foto_perfil,
+          });
         });
-        setComments(enriched);
-        // actualizar conteo
-        const { data: pubRow, error: pubErr } = await supabase
-          .from('publicaciones')
-          .select('comentarios_count')
-          .eq('id', selectedPost.id)
-          .maybeSingle();
-        if (!pubErr && pubRow && typeof pubRow.comentarios_count === 'number') {
-          setCommentCount(pubRow.comentarios_count);
-        } else {
-          setCommentCount(rows.length);
-        }
       }
+
+      const enriched = rows.map(r => {
+        const fromUser = r.user
+          ? { nombre: r.user.nombre, apellido: r.user.apellido, foto_perfil: r.user.foto_perfil }
+          : (cache.get(String(r.usuario_carnet)) || null);
+        const displayName = fromUser ? `${fromUser.nombre || ''} ${fromUser.apellido || ''}`.trim() : r.usuario_carnet;
+        const avatarUrl = fromUser?.foto_perfil || null;
+        return {
+          id: r.id,
+          usuario: r.usuario_carnet,
+          displayName: displayName || r.usuario_carnet,
+          avatarUrl,
+          texto: r.texto,
+          created_at: r.created_at,
+          likes_count: r.likes_count || 0,
+        };
+      });
+
+      setComments(enriched);
+      setCommentCount(enriched.length);
       setCommentModalVisible(true);
     } catch (e) {
       console.error('openComments perfil error:', e);
+      if (e instanceof ApiError && e.status === 401) {
+        Alert.alert('Sesión requerida', 'Inicia sesión para ver comentarios.');
+      }
     }
   };
 
@@ -671,15 +575,9 @@ function PublicacionesTab({ usuario, darkMode }) {
     try {
       const text = newComment.trim();
       if (!text || !selectedPost?.id) return;
-      let c = carnet || (await AsyncStorage.getItem('carnet'));
-      if (!c) return;
-      const { error } = await supabase
-        .from('comentarios')
-        .insert({ publicacion_id: selectedPost.id, usuario_carnet: c, contenido: text });
-      if (!error) {
-        setNewComment('');
-        await openComments();
-      }
+      await createComment(selectedPost.id, text);
+      setNewComment('');
+      await openComments();
     } catch {}
   };
 
@@ -691,14 +589,8 @@ function PublicacionesTab({ usuario, darkMode }) {
   const confirmDeleteComment = async () => {
     try {
       if (!commentToDelete || !selectedPost?.id) return;
-      const { error } = await supabase
-        .from('comentarios')
-        .delete()
-        .eq('publicacion_id', selectedPost.id)
-        .eq('usuario_carnet', commentToDelete.usuario)
-        .eq('contenido', commentToDelete.texto)
-        .eq('created_at', commentToDelete.created_at);
-      if (error) throw error;
+      if (!commentToDelete.id) throw new Error('Comentario sin id');
+      await deleteComment(commentToDelete.id);
       await openComments();
       setDeleteCommentModalVisible(false);
       setCommentToDelete(null);
@@ -711,15 +603,12 @@ function PublicacionesTab({ usuario, darkMode }) {
 
   const handlePublished = async () => {
     setShowPublishModal(false);
-    // Recargar publicaciones
-    const { data, error } = await supabase
-      .from('publicaciones')
-      .select('*')
-      .eq('carnet_usuario', usuario.carnet)
-      .order('fecha_publicacion', { ascending: false });
-    if (!error && data) {
-      setPosts(data);
-    }
+    try {
+      const all = await listPosts();
+      const mine = (all || []).filter((p) => String(p.carnet_usuario) === String(usuario.carnet));
+      mine.sort((a, b) => new Date(b.fecha_publicacion || 0) - new Date(a.fecha_publicacion || 0));
+      setPosts(mine);
+    } catch {}
   };
 
   if (loading) {
@@ -932,19 +821,10 @@ function VentasTab({ usuario, darkMode }) {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('productos')
-        .select('*')
-        .eq('usuario_carnet', usuario.carnet)
-        .order('fecha_publicacion', { ascending: false });
-
-      console.log('🛒 Productos encontrados:', data?.length || 0);
-      
-      if (!error && data) {
-        setProductos(data);
-      } else if (error) {
-        console.error('Error al cargar productos:', error);
-      }
+      const all = await listProducts();
+      const mine = (all || []).filter((p) => String(p.usuario_carnet) === String(usuario.carnet));
+      mine.sort((a, b) => new Date(b.fecha_publicacion || 0) - new Date(a.fecha_publicacion || 0));
+      setProductos(mine);
     } catch (err) {
       console.error('Error al cargar productos:', err);
     } finally {
@@ -959,18 +839,19 @@ function VentasTab({ usuario, darkMode }) {
 
   const confirmDeleteProducto = async () => {
     if (!productoAEliminar) return;
-    
-    const { error } = await supabase
-      .from('productos')
-      .delete()
-      .eq('id', productoAEliminar.id);
-    
-    if (!error) {
+
+    try {
+      await deleteProduct(productoAEliminar.id);
       setConfirmDeleteVisible(false);
       setProductoAEliminar(null);
       fetchProductos();
-    } else {
-      Alert.alert('Error', 'No se pudo eliminar el producto');
+    } catch (e) {
+      console.warn('Error eliminando producto:', e);
+      if (e instanceof ApiError && e.status === 401) {
+        Alert.alert('Sesión requerida', 'Inicia sesión para eliminar un producto.');
+      } else {
+        Alert.alert('Error', 'No se pudo eliminar el producto');
+      }
     }
   };
 

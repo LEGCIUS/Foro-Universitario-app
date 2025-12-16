@@ -8,7 +8,7 @@ export default function TutorialesScreen() {
   const [contenido, setContenido] = useState('');
 
   const handleGuardar = () => {
-    // Aquí iría la lógica para guardar el tutorial en Supabase o backend
+    // Aquí iría la lógica para guardar el tutorial en el backend
     alert('Tutorial guardado (simulado)');
   };
 

@@ -3,9 +3,7 @@ import { View, Text, TextInput, Button, ActivityIndicator, StyleSheet, Touchable
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
-import { supabase } from "../../Supabase/supabaseClient";
-import * as Crypto from 'expo-crypto';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { loginWithCarnet, register as registerUser } from '../../src/services/auth';
 import { useNavigation } from '@react-navigation/native';
 import { useResponsive } from '../hooks/useResponsive';
 
@@ -73,37 +71,6 @@ export default function LoginScreen({ onLogin }) {
     setRegForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Actualiza la contraseña solo si el usuario ya existe.
-  // Evita violar NOT NULL en columnas como nombre, apellido, correo.
-  const ensureUsuarioRow = async (carnet, contrasenaPlano) => {
-    try {
-      if (!carnet) return;
-      const trimmed = carnet.trim();
-      const { data: existing, error: selectError } = await supabase
-        .from('usuarios')
-        .select('carnet')
-        .eq('carnet', trimmed)
-        .single();
-
-      if (selectError || !existing) {
-        // No intentamos crear porque faltarían campos NOT NULL.
-        return;
-      }
-
-      if (contrasenaPlano) {
-        const { error: updateError } = await supabase
-          .from('usuarios')
-          .update({ contrasena: String(contrasenaPlano).trim() })
-          .eq('carnet', trimmed);
-        if (updateError) {
-          console.error('Error actualizando contraseña usuario:', updateError);
-        }
-      }
-    } catch (e) {
-      console.error('Excepción al actualizar usuario existente:', e);
-    }
-  };
-
   const handleLogin = async () => {
     setError(null);
     setLoading(true);
@@ -113,58 +80,10 @@ export default function LoginScreen({ onLogin }) {
         throw new Error('Carnet y contraseña son obligatorios');
       }
 
-      // Llamar a Edge Function para login con bcrypt
-      const { data, error: loginError } = await supabase.functions.invoke('login-user', {
-        body: {
-          carnet: form.carnet,
-          contrasena: form.contrasena,
-        }
+      await loginWithCarnet({
+        carnet: form.carnet,
+        password: form.contrasena,
       });
-
-      if (loginError) {
-        // Fallback: Intentar login directo desde base de datos sin mostrar errores técnicos al usuario
-        const { data: usuario, error: dbError } = await supabase
-          .from('usuarios')
-          .select('carnet, contrasena')
-          .eq('carnet', form.carnet)
-          .single();
-
-        if (dbError || !usuario) {
-          throw new Error('Carnet o contraseña incorrectos');
-        }
-
-        // Verificar contraseña (directo si es texto plano, o hash si es SHA-256)
-        const esHash = usuario.contrasena?.length === 64 && /^[a-f0-9]+$/i.test(usuario.contrasena);
-        
-        if (esHash) {
-          // Hash SHA-256 usando expo-crypto para evitar dependencia de crypto.subtle
-          const hashHex = await Crypto.digestStringAsync(
-            Crypto.CryptoDigestAlgorithm.SHA256,
-            form.contrasena
-          );
-          if (hashHex !== usuario.contrasena) {
-            throw new Error('Carnet o contraseña incorrectos');
-          }
-        } else {
-          // Texto plano (usuarios antiguos)
-          if (form.contrasena !== usuario.contrasena) {
-            throw new Error('Carnet o contraseña incorrectos');
-          }
-        }
-
-        await AsyncStorage.setItem('carnet', form.carnet);
-        await ensureUsuarioRow(form.carnet, form.contrasena);
-        onLogin();
-        return;
-      }
-
-      if (!data?.success) {
-        throw new Error('Carnet o contraseña incorrectos');
-      }
-
-  await AsyncStorage.setItem('carnet', form.carnet);
-  // Intentar crear la fila en usuarios si no existe (no sobrescribe si existe)
-  await ensureUsuarioRow(form.carnet, form.contrasena);
       onLogin();
     } catch (err) {
       // Mapear errores a un mensaje amigable, preservando validaciones requeridas
@@ -201,77 +120,13 @@ export default function LoginScreen({ onLogin }) {
           throw new Error('Correo no válido');
         }
 
-        // Llamar a Edge Function para registro
-        const { data, error: registerError } = await supabase.functions.invoke('user-signup', {
-          body: {
-            carnet: carnet.trim(),
-            nombre: nombre.trim(),
-            apellido: apellido.trim(),
-            correo: correo.trim().toLowerCase(),
-            carrera: carrera?.trim() || null,
-          }
+        await registerUser({
+          carnet,
+          nombre,
+          apellido,
+          correo,
+          carrera,
         });
-
-        if (registerError || !data?.success) {
-          // Construir mensaje amigable: carnet duplicado / correo en uso
-          let serverMsg = null;
-          let serverCode = null;
-          try {
-            if (registerError?.context?.body) {
-              const raw = registerError.context.body;
-              try {
-                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-                serverMsg = parsed?.message || parsed?.error || null;
-                serverCode = parsed?.code || parsed?.error_code || null;
-              } catch (_) {
-                serverMsg = String(raw);
-              }
-            } else if (data && !data.success) {
-              serverMsg = data?.message || data?.error || null;
-              serverCode = data?.code || data?.error_code || null;
-            }
-          } catch (_) {}
-
-          // Mapear códigos/mensajes comunes
-          let userMsg = null;
-          const lower = (serverMsg || '').toLowerCase();
-          let serverCarnetDup = false;
-          let serverEmailDup = false;
-          if (serverCode === 'DUPLICATE_CARNET' || (lower.includes('carnet') && (lower.includes('existe') || lower.includes('duplic') || lower.includes('registrad')))) {
-            serverCarnetDup = true;
-          }
-          if (serverCode === 'EMAIL_IN_USE' || (lower.includes('correo') && (lower.includes('existe') || lower.includes('uso') || lower.includes('registrad')))) {
-            serverEmailDup = true;
-          }
-          if (serverCarnetDup && serverEmailDup) {
-            userMsg = 'El carnet y el correo ya están en uso.';
-          } else if (serverCarnetDup) {
-            userMsg = 'El carnet ya está registrado.';
-          } else if (serverEmailDup) {
-            userMsg = 'El correo ya está en uso.';
-          }
-
-          // Si no quedó claro, verificar en la BD para dar feedback específico
-          if (!userMsg) {
-            try {
-              const [carnetDupRes, correoDupRes] = await Promise.all([
-                supabase.from('usuarios').select('carnet').eq('carnet', carnet.trim()).maybeSingle(),
-                supabase.from('usuarios').select('correo').eq('correo', correo.trim().toLowerCase()).maybeSingle(),
-              ]);
-              const carnetDup = !!carnetDupRes?.data;
-              const correoDup = !!correoDupRes?.data;
-              if (carnetDup && correoDup) {
-                userMsg = 'El carnet y el correo ya están en uso.';
-              } else if (carnetDup) {
-                userMsg = 'El carnet ya está registrado.';
-              } else if (correoDup) {
-                userMsg = 'El correo ya está en uso.';
-              }
-            } catch (_) {}
-          }
-
-          throw new Error(userMsg || serverMsg || 'No se pudo completar el registro');
-        }
         
         // Mostrar mensaje de éxito
         setRegSuccess(true);

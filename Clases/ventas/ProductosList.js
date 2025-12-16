@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, Image, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Alert, Modal, TouchableWithoutFeedback, TextInput, Dimensions } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../../Supabase/supabaseClient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CustomAlert from '../components/CustomAlert';
+import { listProducts, deleteProduct, reportProduct } from '../../src/services/products';
+import { getMe, getUserByCarnet } from '../../src/services/users';
 
 function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProductoPublicado, setLoading, closeMenu, setDeleteVisible, setDeleteTarget, usuariosPerfil }) {
   const { darkMode } = useTheme();
@@ -51,11 +51,6 @@ function ProductoCard({ item, onVerDetalle, navigation, userCarnet, handleProduc
             <TouchableOpacity
                 onPress={async () => {
                   let miCarnet = (userCarnet || '').toString().trim();
-                  if (!miCarnet) {
-                    try {
-                      miCarnet = (await AsyncStorage.getItem('carnet'))?.toString().trim() || '';
-                    } catch {}
-                  }
                   const carnetVendedor = (item.usuario_carnet || '').toString().trim();
                   if (miCarnet && carnetVendedor && miCarnet === carnetVendedor) {
                     // Navegar al perfil propio como en CommentsModal/PublicationsViewer
@@ -219,27 +214,39 @@ export default function ProductosList(props) {
     async function fetchUsuariosPerfil() {
       const carnets = Array.from(new Set(productos.map(p => p.usuario_carnet).filter(Boolean)));
       if (carnets.length === 0) return;
-      const { data } = await supabase.from('usuarios').select('carnet, nombre, apellido, foto_perfil').in('carnet', carnets);
-      if (Array.isArray(data)) {
+      try {
+        const users = await Promise.all(
+          carnets.map(async (c) => {
+            try {
+              return await getUserByCarnet(c);
+            } catch {
+              return null;
+            }
+          })
+        );
         const map = {};
-        data.forEach(u => { map[u.carnet] = u; });
+        users.filter(Boolean).forEach((u) => {
+          map[u.carnet] = u;
+        });
         setUsuariosPerfil(map);
+      } catch {
+        // noop
       }
     }
     fetchUsuariosPerfil();
   }, [productos]);
 
   useEffect(() => {
-    AsyncStorage.getItem('carnet').then(carnet => {
-      setUserCarnet(carnet || '');
-    });
+    getMe().then(me => setUserCarnet(me?.carnet || '')).catch(() => setUserCarnet(''));
     const fetchProductos = async () => {
       setLoading(true);
-      const { data } = await supabase
-        .from('productos')
-        .select('*')
-        .order('fecha_publicacion', { ascending: false });
-      setProductos(data || []);
+      try {
+        const data = await listProducts();
+        setProductos(data || []);
+      } catch (e) {
+        console.error('Error al cargar productos:', e);
+        setProductos([]);
+      }
       setLoading(false);
     };
     fetchProductos();
@@ -257,11 +264,12 @@ export default function ProductosList(props) {
 
   const handleProductoPublicado = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('productos')
-      .select('*')
-      .order('fecha_publicacion', { ascending: false });
-    setProductos(data || []);
+    try {
+      const data = await listProducts();
+      setProductos(data || []);
+    } catch (e) {
+      console.error('Error al recargar productos:', e);
+    }
     setLoading(false);
   };
 
@@ -547,21 +555,11 @@ export default function ProductosList(props) {
                   <TouchableOpacity
                     onPress={async () => {
                       try {
-                        const carnet = await AsyncStorage.getItem('carnet');
-                        if (!carnet) throw new Error('No se encontró el usuario actual');
-
-                        // Insertar reporte de producto en la nueva tabla reportes_ventas
-                        const payload = {
-                          producto_id: productoSeleccionado?.id || null,
-                          carnet_reporta: carnet,
-                          carnet_publica: productoSeleccionado?.usuario_carnet || null,
+                        if (!productoSeleccionado?.id) throw new Error('Producto inválido');
+                        await reportProduct(productoSeleccionado.id, {
                           motivo: reportReason,
-                          detalle: reportText || null,
-                          created_at: new Date().toISOString(),
-                        };
-
-                        const { error } = await supabase.from('reportes_ventas').insert([payload]);
-                        if (error) throw error;
+                          detalle: reportText || undefined,
+                        });
 
                         setAlert({
                           visible: true,
@@ -667,7 +665,7 @@ export default function ProductosList(props) {
                       if (!productoAEliminar || deleting) return;
                       try {
                         setDeleting(true);
-                        await supabase.from('productos').delete().eq('id', productoAEliminar.id);
+                        await deleteProduct(productoAEliminar.id);
                         await handleProductoPublicado();
                         setDeleteModalVisible(false);
                         setProductoAEliminar(null);

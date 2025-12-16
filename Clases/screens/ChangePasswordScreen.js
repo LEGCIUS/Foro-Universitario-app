@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, ScrollView, StatusBar, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Crypto from 'expo-crypto';
-import { supabase } from '../../Supabase/supabaseClient';
 import { useTheme } from '../contexts/ThemeContext';
 import CustomAlert from '../components/CustomAlert';
+import { changePassword } from '../../src/services/auth';
 
 const ChangePasswordScreen = ({ navigation }) => {
   const { darkMode } = useTheme();
@@ -79,56 +77,10 @@ const ChangePasswordScreen = ({ navigation }) => {
 
       setLoading(true);
 
-      const carnet = await AsyncStorage.getItem('carnet');
-      if (!carnet) {
-        throw new Error('No se encontró el usuario actual');
-      }
-
-      // Obtener la contraseña actual de la base de datos
-      const { data: usuario, error: fetchError } = await supabase
-        .from('usuarios')
-        .select('contrasena')
-        .eq('carnet', carnet)
-        .single();
-
-      if (fetchError || !usuario) {
-        throw new Error('No se pudo verificar la contraseña actual');
-      }
-
-      // Verificar contraseña actual
-      const esHash = usuario.contrasena?.length === 64 && /^[a-f0-9]+$/i.test(usuario.contrasena);
-      
-      if (esHash) {
-        // Verificar hash SHA-256
-        const hashActual = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          currentPassword
-        );
-        if (hashActual !== usuario.contrasena) {
-          throw new Error('La contraseña actual es incorrecta');
-        }
-      } else {
-        // Texto plano
-        if (currentPassword !== usuario.contrasena) {
-          throw new Error('La contraseña actual es incorrecta');
-        }
-      }
-
-      // Generar hash SHA-256 de la nueva contraseña
-      const nuevoHash = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        newPassword
-      );
-
-      // Actualizar la contraseña en la base de datos
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update({ contrasena: nuevoHash })
-        .eq('carnet', carnet);
-
-      if (updateError) {
-        throw new Error('No se pudo actualizar la contraseña');
-      }
+      await changePassword({
+        currentPassword,
+        newPassword,
+      });
 
       setLoading(false);
       setAlert({

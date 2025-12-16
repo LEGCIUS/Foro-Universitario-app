@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, TouchableOpacity, TextInput, FlatList, Image, StyleSheet, Dimensions, Pressable, Alert } from 'react-native';
 import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { supabase } from '../../Supabase/supabaseClient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ApiError } from '../../src/services/api';
+import { getMe } from '../../src/services/users';
+import { createReply, deleteReply, listReplies } from '../../src/services/comments';
+import {
+  getCommentLikeState,
+  getReplyLikeState,
+  likeComment,
+  likeReply,
+  unlikeComment,
+  unlikeReply,
+} from '../../src/services/likes';
 
 /*
   Props:
@@ -57,16 +66,16 @@ export default function CommentsModal({
   useEffect(() => {
     const ensureCarnet = async () => {
       try {
-        if (!meCarnet && visible) {
-          const c = await AsyncStorage.getItem('carnet');
-          if (c) setMyCarnet(c);
+        if (!meCarnet && visible && !myCarnet) {
+          const me = await getMe();
+          if (me?.carnet) setMyCarnet(me.carnet);
         }
       } catch (e) {
         // noop
       }
     };
     ensureCarnet();
-  }, [visible, meCarnet]);
+  }, [visible, meCarnet, myCarnet]);
 
   // Cargar likes cuando cambian los comentarios o se abre el modal
   useEffect(() => {
@@ -84,38 +93,24 @@ export default function CommentsModal({
       const likesMap = {};
       const myLikesMap = {};
 
-      // FUENTE DE VERDAD: siempre contar desde likes_comentarios (ignora likes_count de comentarios)
-      const { data: allLikesRows, error: allLikesErr } = await supabase
-        .from('likes_comentarios')
-        .select('comentario_id')
-        .in('comentario_id', commentIds);
-      
-      if (!allLikesErr && Array.isArray(allLikesRows)) {
-        // Agrupar manualmente para obtener el conteo real
-        const grouped = {};
-        allLikesRows.forEach(r => { 
-          grouped[r.comentario_id] = (grouped[r.comentario_id] || 0) + 1; 
-        });
-        // Inicializar todos los IDs en 0, luego sobreescribir con el conteo real
-        commentIds.forEach(id => { likesMap[id] = grouped[id] || 0; });
-      } else {
-        // Si falla, inicializar todos en 0
-        commentIds.forEach(id => { likesMap[id] = 0; });
-      }
+      const results = await Promise.allSettled(
+        commentIds.map(async (id) => {
+          const state = await getCommentLikeState(id);
+          return { id, state };
+        })
+      );
 
-      // Verificar si yo di like a cada comentario (consulta única si tenemos carnet)
-      const userCarnet = meCarnet || myCarnet;
-      if (userCarnet) {
-        const { data: myLikesRows } = await supabase
-          .from('likes_comentarios')
-          .select('comentario_id')
-          .eq('usuario_carnet', userCarnet)
-          .in('comentario_id', commentIds);
-        if (Array.isArray(myLikesRows)) {
-          const setIds = new Set(myLikesRows.map(r => r.comentario_id));
-          commentIds.forEach(id => { myLikesMap[id] = setIds.has(id); });
-        }
-      }
+      results.forEach((r) => {
+        if (r.status !== 'fulfilled') return;
+        likesMap[r.value.id] = r.value.state.count;
+        myLikesMap[r.value.id] = r.value.state.liked;
+      });
+
+      // Asegurar IDs sin respuesta
+      commentIds.forEach((id) => {
+        if (likesMap[id] === undefined) likesMap[id] = 0;
+        if (myLikesMap[id] === undefined) myLikesMap[id] = false;
+      });
 
       setCommentLikes(likesMap);
       setLikedByMe(myLikesMap);
@@ -124,100 +119,51 @@ export default function CommentsModal({
     }
   };
 
-  // Recalcula todos los conteos desde la tabla likes_comentarios (ÚNICA fuente de verdad)
-  const refreshAllLikeCounts = async () => {
-    try {
-      const commentIds = comments.map(c => c.id).filter(Boolean);
-      if (commentIds.length === 0) return;
-      
-      const { data, error } = await supabase
-        .from('likes_comentarios')
-        .select('comentario_id')
-        .in('comentario_id', commentIds);
-      
-      if (error) return;
-      
-      // Agrupar manualmente (data trae todas las filas)
-      const grouped = {};
-      if (Array.isArray(data)) {
-        data.forEach(row => {
-          grouped[row.comentario_id] = (grouped[row.comentario_id] || 0) + 1;
-        });
-      }
-      
-      // Inicializar en 0 los que no tienen likes
-      const finalCounts = {};
-      commentIds.forEach(id => {
-        finalCounts[id] = grouped[id] || 0;
-      });
-      
-      setCommentLikes(finalCounts);
-    } catch (e) {
-      console.error('Error refreshing like counts:', e);
-    }
-  };
-
   const loadRepliesForComments = async () => {
     try {
       const commentIds = comments.map(c => c.id).filter(Boolean);
       if (commentIds.length === 0) return;
 
-      const { data, error } = await supabase
-        .from('respuestas_comentarios')
-        .select(`
-          id,
-          comentario_id,
-          usuario_carnet,
-          contenido,
-          created_at
-        `)
-        .in('comentario_id', commentIds)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error loading replies:', error);
-        return;
-      }
-
-      // Obtener info de usuarios únicos
-      const uniqueCarnets = [...new Set((data || []).map(r => r.usuario_carnet))];
-      const usersMap = {};
-      
-      if (uniqueCarnets.length > 0) {
-        const { data: usersData } = await supabase
-          .from('usuarios')
-          .select('carnet, nombre, apellido, foto_perfil')
-          .in('carnet', uniqueCarnets);
-        
-        if (usersData) {
-          usersData.forEach(u => {
-            usersMap[u.carnet] = {
-              displayName: `${u.nombre || ''} ${u.apellido || ''}`.trim() || u.carnet,
-              avatarUrl: u.foto_perfil || null,
-            };
-          });
-        }
-      }
-
-      // Agrupar respuestas por comentario_id
       const repliesMap = {};
-      (data || []).forEach(reply => {
-        if (!repliesMap[reply.comentario_id]) {
-          repliesMap[reply.comentario_id] = [];
-        }
-        repliesMap[reply.comentario_id].push({
-          ...reply,
-          displayName: usersMap[reply.usuario_carnet]?.displayName || reply.usuario_carnet,
-          avatarUrl: usersMap[reply.usuario_carnet]?.avatarUrl,
+      const allReplyIds = [];
+
+      const results = await Promise.allSettled(
+        commentIds.map(async (commentId) => {
+          const items = await listReplies(commentId);
+          return { commentId, items };
+        })
+      );
+
+      results.forEach((r) => {
+        if (r.status !== 'fulfilled') return;
+        const commentId = r.value.commentId;
+        const mapped = (r.value.items || []).map((reply) => {
+          const displayName = reply?.user
+            ? `${reply.user.nombre || ''} ${reply.user.apellido || ''}`.trim() || reply.usuario_carnet
+            : reply.usuario_carnet;
+          const avatarUrl = reply?.user?.foto_perfil || null;
+          const row = {
+            id: reply.id,
+            comentario_id: reply.comentario_id ?? commentId,
+            usuario_carnet: reply.usuario_carnet,
+            contenido: reply.texto,
+            created_at: reply.created_at,
+            displayName,
+            avatarUrl,
+          };
+          if (row.id) allReplyIds.push(row.id);
+          return row;
         });
+        repliesMap[commentId] = mapped;
       });
 
       setReplies(repliesMap);
-      
-      // Cargar likes de todas las respuestas
-      const allReplyIds = (data || []).map(r => r.id);
+
       if (allReplyIds.length > 0) {
         await loadLikesForReplies(allReplyIds);
+      } else {
+        setReplyLikes({});
+        setReplyLikedByMe({});
       }
     } catch (error) {
       console.error('Error loading replies:', error);
@@ -231,35 +177,23 @@ export default function CommentsModal({
       const likesMap = {};
       const myLikesMap = {};
 
-      // Contar likes de cada respuesta
-      const { data: allLikesRows, error: allLikesErr } = await supabase
-        .from('likes_respuestas')
-        .select('respuesta_id')
-        .in('respuesta_id', replyIds);
-      
-      if (!allLikesErr && Array.isArray(allLikesRows)) {
-        const grouped = {};
-        allLikesRows.forEach(r => { 
-          grouped[r.respuesta_id] = (grouped[r.respuesta_id] || 0) + 1; 
-        });
-        replyIds.forEach(id => { likesMap[id] = grouped[id] || 0; });
-      } else {
-        replyIds.forEach(id => { likesMap[id] = 0; });
-      }
+      const results = await Promise.allSettled(
+        replyIds.map(async (id) => {
+          const state = await getReplyLikeState(id);
+          return { id, state };
+        })
+      );
 
-      // Verificar cuáles di like yo
-      const userCarnet = meCarnet || myCarnet;
-      if (userCarnet) {
-        const { data: myLikesRows } = await supabase
-          .from('likes_respuestas')
-          .select('respuesta_id')
-          .eq('usuario_carnet', userCarnet)
-          .in('respuesta_id', replyIds);
-        if (Array.isArray(myLikesRows)) {
-          const setIds = new Set(myLikesRows.map(r => r.respuesta_id));
-          replyIds.forEach(id => { myLikesMap[id] = setIds.has(id); });
-        }
-      }
+      results.forEach((r) => {
+        if (r.status !== 'fulfilled') return;
+        likesMap[r.value.id] = r.value.state.count;
+        myLikesMap[r.value.id] = r.value.state.liked;
+      });
+
+      replyIds.forEach((id) => {
+        if (likesMap[id] === undefined) likesMap[id] = 0;
+        if (myLikesMap[id] === undefined) myLikesMap[id] = false;
+      });
 
       setReplyLikes(likesMap);
       setReplyLikedByMe(myLikesMap);
@@ -270,39 +204,21 @@ export default function CommentsModal({
 
   const handleSubmitReply = async () => {
     if (!replyText.trim() || !replyingTo) return;
-    
-    const actorCarnet = meCarnet || myCarnet;
-    if (!actorCarnet) return;
 
     try {
-      const { data, error } = await supabase
-        .from('respuestas_comentarios')
-        .insert({
-          comentario_id: replyingTo.id,
-          usuario_carnet: actorCarnet,
-          contenido: replyText.trim(),
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error submitting reply:', error);
-        return;
-      }
-
-      // Obtener info del usuario actual
-      const { data: userData } = await supabase
-        .from('usuarios')
-        .select('nombre, apellido, foto_perfil')
-        .eq('carnet', actorCarnet)
-        .single();
-
+      const data = await createReply(replyingTo.id, replyText.trim());
+      const displayName = data?.user
+        ? `${data.user.nombre || ''} ${data.user.apellido || ''}`.trim() || data.usuario_carnet
+        : data.usuario_carnet;
+      const avatarUrl = data?.user?.foto_perfil || null;
       const newReply = {
-        ...data,
-        displayName: userData 
-          ? `${userData.nombre || ''} ${userData.apellido || ''}`.trim() || actorCarnet
-          : actorCarnet,
-        avatarUrl: userData?.foto_perfil || null,
+        id: data.id,
+        comentario_id: data.comentario_id ?? replyingTo.id,
+        usuario_carnet: data.usuario_carnet,
+        contenido: data.texto,
+        created_at: data.created_at,
+        displayName,
+        avatarUrl,
       };
 
       // Actualizar estado local - asegurar que el nuevo array se crea correctamente
@@ -315,8 +231,10 @@ export default function CommentsModal({
       });
       
       // Inicializar likes para la nueva respuesta
-      setReplyLikes(prev => ({ ...prev, [data.id]: 0 }));
-      setReplyLikedByMe(prev => ({ ...prev, [data.id]: false }));
+      if (newReply.id) {
+        setReplyLikes(prev => ({ ...prev, [newReply.id]: 0 }));
+        setReplyLikedByMe(prev => ({ ...prev, [newReply.id]: false }));
+      }
 
       // Mostrar las respuestas automáticamente
       setShowReplies(prev => ({ ...prev, [replyingTo.id]: true }));
@@ -326,12 +244,14 @@ export default function CommentsModal({
       setReplyingTo(null);
     } catch (error) {
       console.error('Error submitting reply:', error);
+      if (error instanceof ApiError && error.status === 401) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para responder.');
+      }
     }
   };
 
   const handleLikeReply = async (replyId) => {
-    const actorCarnet = meCarnet || myCarnet;
-    if (!actorCarnet || !replyId) return;
+    if (!replyId) return;
 
     try {
       const isLiked = replyLikedByMe[replyId];
@@ -343,42 +263,14 @@ export default function CommentsModal({
         [replyId]: Math.max(0, (prev[replyId] || 0) + (isLiked ? -1 : 1))
       }));
 
-      if (isLiked) {
-        // Quitar like
-        const { error } = await supabase
-          .from('likes_respuestas')
-          .delete()
-          .eq('respuesta_id', replyId)
-          .eq('usuario_carnet', actorCarnet);
-
-        if (error) {
-          // Revertir en caso de error
-          setReplyLikedByMe(prev => ({ ...prev, [replyId]: true }));
-          setReplyLikes(prev => ({ 
-            ...prev, 
-            [replyId]: (prev[replyId] || 0) + 1
-          }));
-        }
-      } else {
-        // Dar like
-        const { error } = await supabase
-          .from('likes_respuestas')
-          .insert({
-            respuesta_id: replyId,
-            usuario_carnet: actorCarnet,
-          });
-
-        if (error) {
-          // Revertir en caso de error
-          setReplyLikedByMe(prev => ({ ...prev, [replyId]: false }));
-          setReplyLikes(prev => ({ 
-            ...prev, 
-            [replyId]: Math.max(0, (prev[replyId] || 0) - 1)
-          }));
-        }
-      }
+      const state = isLiked ? await unlikeReply(replyId) : await likeReply(replyId);
+      setReplyLikedByMe(prev => ({ ...prev, [replyId]: state.liked }));
+      setReplyLikes(prev => ({ ...prev, [replyId]: state.count }));
     } catch (error) {
       console.error('Error handling reply like:', error);
+      if (error instanceof ApiError && error.status === 401) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
+      }
     }
   };
 
@@ -405,14 +297,7 @@ export default function CommentsModal({
       setReplyLikes(prev => { const copy = { ...prev }; delete copy[replyObj.id]; return copy; });
       setReplyLikedByMe(prev => { const copy = { ...prev }; delete copy[replyObj.id]; return copy; });
 
-      const { error } = await supabase
-        .from('respuestas_comentarios')
-        .delete()
-        .eq('id', replyObj.id)
-        .eq('usuario_carnet', actorCarnet);
-      if (error) {
-        await loadRepliesForComments();
-      }
+      await deleteReply(replyObj.id);
     } catch (e) {
       await loadRepliesForComments();
     } finally {
@@ -439,8 +324,7 @@ export default function CommentsModal({
   };
 
   const handleLikeComment = async (commentId) => {
-    const actorCarnet = meCarnet || myCarnet;
-    if (!actorCarnet || !commentId) return;
+    if (!commentId) return;
 
     try {
       const isLiked = likedByMe[commentId];
@@ -452,45 +336,14 @@ export default function CommentsModal({
         [commentId]: Math.max(0, (prev[commentId] || 0) + (isLiked ? -1 : 1))
       }));
 
-      if (isLiked) {
-        // Quitar like
-        const { error } = await supabase
-          .from('likes_comentarios')
-          .delete()
-          .eq('comentario_id', commentId)
-          .eq('usuario_carnet', actorCarnet);
-
-        if (error) {
-          // Revertir en caso de error
-          setLikedByMe(prev => ({ ...prev, [commentId]: true }));
-          setCommentLikes(prev => ({ 
-            ...prev, 
-            [commentId]: (prev[commentId] || 0) + 1
-          }));
-        }
-      } else {
-        // Dar like
-        const { error } = await supabase
-          .from('likes_comentarios')
-          .insert({
-            comentario_id: commentId,
-            usuario_carnet: actorCarnet,
-          }, { returning: 'representation' });
-
-        if (error) {
-          // Revertir en caso de error
-          setLikedByMe(prev => ({ ...prev, [commentId]: false }));
-          setCommentLikes(prev => ({ 
-            ...prev, 
-            [commentId]: Math.max(0, (prev[commentId] || 0) - 1)
-          }));
-        }
-      }
-
-      // Recalcular TODOS los conteos (evita desincronización por valores artificiales)
-      await refreshAllLikeCounts();
+      const state = isLiked ? await unlikeComment(commentId) : await likeComment(commentId);
+      setLikedByMe(prev => ({ ...prev, [commentId]: state.liked }));
+      setCommentLikes(prev => ({ ...prev, [commentId]: state.count }));
     } catch (error) {
       console.error('Error handling like:', error);
+      if (error instanceof ApiError && error.status === 401) {
+        Alert.alert('Inicia sesión', 'Necesitas iniciar sesión para dar like.');
+      }
     }
   };
 

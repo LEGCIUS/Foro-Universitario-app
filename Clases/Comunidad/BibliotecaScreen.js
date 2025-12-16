@@ -16,7 +16,7 @@ export default function BibliotecaScreen() {
   };
 
   const handleGuardar = () => {
-    // Aquí iría la lógica para guardar el archivo en Supabase o backend
+    // Aquí iría la lógica para guardar el archivo en el backend
     alert('Archivo guardado (simulado)');
   };
 

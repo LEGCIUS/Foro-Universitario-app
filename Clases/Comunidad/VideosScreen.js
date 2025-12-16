@@ -68,7 +68,7 @@ export default function VideosScreen() {
   };
 
   const handleGuardar = () => {
-    // Aquí iría la lógica para guardar el video en Supabase o backend
+    // Aquí iría la lógica para guardar el video en el backend
     setShowModal(false);
     setTitulo('');
     setDescripcion('');

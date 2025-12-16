@@ -5,7 +5,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getToken, clearToken } from '../src/services/token';
 
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -40,7 +40,7 @@ export default function App() {
     SplashScreen.preventAutoHideAsync();
     // Verifica si hay sesión guardada
     const checkAuth = async () => {
-      const token = await AsyncStorage.getItem('userToken');
+      const token = await getToken();
       setIsAuthenticated(!!token);
       // Espera 5 segundos exactos antes de continuar
       setTimeout(async () => {
@@ -52,15 +52,12 @@ export default function App() {
   }, []);
 
   const handleLogin = async () => {
-    // Guarda la sesión al iniciar
-    await AsyncStorage.setItem('userToken', 'true');
     setIsAuthenticated(true);
     
   };
 
   const handleLogout = async () => {
-    // Elimina la sesión al cerrar
-    await AsyncStorage.removeItem('userToken');
+    await clearToken();
     setIsAuthenticated(false);
   };
 

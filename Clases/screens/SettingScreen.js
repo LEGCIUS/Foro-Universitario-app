@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Modal, TouchableWithoutFeedback, StatusBar } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
-import { supabase } from '../../Supabase/supabaseClient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { getMe } from '../../src/services/users';
 
 const SettingScreen = ({ onLogout, navigation }) => {
   const { darkMode, toggleTheme } = useTheme();
@@ -21,14 +20,7 @@ const SettingScreen = ({ onLogout, navigation }) => {
     let mounted = true;
     const loadRole = async () => {
       try {
-        const carnetRaw = await AsyncStorage.getItem('carnet');
-        const carnet = carnetRaw && String(carnetRaw).trim();
-        if (!carnet) return;
-        const { data, error } = await supabase
-          .from('usuarios')
-          .select('rol, is_admin')
-          .eq('carnet', carnet)
-          .single();
+        const data = await getMe();
         if (!mounted) return;
         const isTrue = (v) => v === true || v === 'true' || v === 1 || v === '1';
         const isAdminRole = (v) => {
@@ -53,14 +45,7 @@ const SettingScreen = ({ onLogout, navigation }) => {
       let mounted = true;
       const reload = async () => {
         try {
-          const carnetRaw = await AsyncStorage.getItem('carnet');
-          const carnet = carnetRaw && String(carnetRaw).trim();
-          if (!carnet) return;
-          const { data, error } = await supabase
-            .from('usuarios')
-            .select('rol, is_admin')
-            .eq('carnet', carnet)
-            .single();
+          const data = await getMe();
           if (!mounted) return;
           const isTrue = (v) => v === true || v === 'true' || v === 1 || v === '1';
           const isAdminRole = (v) => {
